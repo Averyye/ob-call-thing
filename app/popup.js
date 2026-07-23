@@ -1,12 +1,19 @@
 const form = document.querySelector('#lookup-form');
 const shell = document.querySelector('.shell');
 const popupBody = document.body;
+const layout = document.querySelector('.layout');
 const input = document.querySelector('#customer-number');
 const button = document.querySelector('#lookup-button');
 const dialButton = document.querySelector('#dial-button');
+const openSessionSetupButton = document.querySelector('#open-session-setup');
+const startSessionButton = document.querySelector('#start-session');
+const closeSessionSetupButton = document.querySelector('#close-session-setup');
+const sessionSetupPanel = document.querySelector('#session-setup');
 const dispositionSelect = document.querySelector('#disposition-select');
 const saveDispositionButton = document.querySelector('#save-disposition');
+const sessionReadyBadge = document.querySelector('#session-ready-badge');
 const status = document.querySelector('#status');
+const inlineStatus = document.querySelector('#status-inline');
 const results = document.querySelector('#results');
 // by Mo and Avery
 
@@ -36,6 +43,28 @@ const DISPOSITION_OPTIONS = [
   'do not call'
 ];
 
+function setResultsOpen(isOpen) {
+  popupBody.classList.toggle('results-open', isOpen);
+  layout.classList.toggle('results-open', isOpen);
+}
+
+function setSessionReady(isReady) {
+  popupBody.classList.toggle('session-ready', isReady);
+  if (sessionReadyBadge) {
+    sessionReadyBadge.hidden = !isReady;
+  }
+}
+
+function setSessionSetupOpen(isOpen) {
+  if (sessionSetupPanel) {
+    sessionSetupPanel.hidden = !isOpen;
+  }
+  if (isOpen) {
+    setResultsOpen(false);
+  }
+  popupBody.classList.toggle('setup-open', isOpen);
+}
+
 const fields = [
   ['Customer', 'customerName'],
   ['Search number', 'customerNumber'],
@@ -51,6 +80,10 @@ const fields = [
 function setStatus(message, type = '') {
   status.textContent = message;
   status.className = `status ${type}`;
+  if (inlineStatus) {
+    inlineStatus.textContent = message;
+    inlineStatus.className = `status ${type}`;
+  }
 }
 
 /* by Mo and Avery */
@@ -87,10 +120,12 @@ function statusTone(accountStatus) {
 }
 
 function render(data) {
+  setResultsOpen(true);
   results.replaceChildren();
-  for (const [label, key] of fields) {
+  for (const [index, [label, key]] of fields.entries()) {
     const row = document.createElement('div');
-    row.className = 'result-row';
+    row.className = 'result-row result-row-enter';
+    row.style.animationDelay = `${index * 35}ms`;
     if (key === 'accountStatus') {
       row.classList.add('result-row-status', `status-tone-${statusTone(data[key])}`);
     }
@@ -107,6 +142,7 @@ function render(data) {
 }
 
 function renderRenewedBatchResults(renewedEntries, notRenewedCount, unknownEntries, totalCount, retryRecoveredCount = 0) {
+  setResultsOpen(true);
   renewedList.replaceChildren();
   unknownList.replaceChildren();
 
@@ -182,7 +218,34 @@ function setActionButtonsDisabled(disabled) {
   pullPreviousBillingNumberButton.disabled = disabled;
   pullNextBillingNumberButton.disabled = disabled;
   runRenewalAutocheckButton.disabled = disabled;
+  if (openSessionSetupButton) openSessionSetupButton.disabled = disabled;
+  if (startSessionButton) startSessionButton.disabled = disabled;
+  if (closeSessionSetupButton) closeSessionSetupButton.disabled = disabled;
   if (pickLocalDispositionFileButton) pickLocalDispositionFileButton.disabled = disabled;
+}
+
+function hasSessionRows() {
+  return Boolean(String(pastedRowsInput.value || '').trim());
+}
+
+function ensureSessionRows() {
+  const rowsText = String(pastedRowsInput.value || '').trim();
+  if (!rowsText) {
+    throw new Error('Paste copied rows in Start Session first.');
+  }
+  const rows = parseClipboardRows(rowsText);
+  if (!rows.length) {
+    throw new Error('No readable rows found in Start Session paste data.');
+  }
+  return rows;
+}
+
+async function beginSessionFromSetup() {
+  ensureSessionRows();
+  await persistTargetValue();
+  setSessionReady(true);
+  setSessionSetupOpen(false);
+  setStatus('Session ready. Use Previous/Next to load billing numbers.', 'success');
 }
 
 function normalizeDialNumber(value) {
@@ -601,6 +664,7 @@ function findBillingMatchesFromRows(rows, targetValue) {
 }
 
 async function pullBillingNumberForTarget(direction = 1) {
+  ensureSessionRows();
   const targetValue = getTargetValue();
   const parsedTargets = parseTargetValues(targetValue);
   const pastedRowsText = String(pastedRowsInput.value || '').trim();
@@ -650,6 +714,7 @@ form.addEventListener('submit', async (event) => {
   if (!billingNumber) return;
 
   setActionButtonsDisabled(true);
+  setResultsOpen(false);
   results.hidden = true;
   hideRenewedBatchResults();
   clearRenewalStateClasses();
@@ -758,6 +823,7 @@ runRenewalAutocheckButton.addEventListener('click', async () => {
   if (isBatchRunning) return;
   isBatchRunning = true;
   setActionButtonsDisabled(true);
+  setResultsOpen(false);
   results.hidden = true;
   hideRenewedBatchResults();
   clearRenewalStateClasses();
@@ -865,10 +931,58 @@ runRenewalAutocheckButton.addEventListener('click', async () => {
 
 pastedRowsInput.addEventListener('input', () => {
   chrome.storage.local.set({ excelPastedRows: pastedRowsInput.value });
+  setSessionReady(hasSessionRows());
 });
+
+if (openSessionSetupButton) {
+  openSessionSetupButton.addEventListener('click', () => {
+    setSessionSetupOpen(true);
+  });
+}
+
+if (startSessionButton) {
+  startSessionButton.addEventListener('click', async () => {
+    if (isBatchRunning) return;
+    setActionButtonsDisabled(true);
+    try {
+      await beginSessionFromSetup();
+    } catch (error) {
+      setStatus(error.message || 'Could not start session.', 'error');
+    } finally {
+      setActionButtonsDisabled(false);
+    }
+  });
+}
+
+if (closeSessionSetupButton) {
+  closeSessionSetupButton.addEventListener('click', () => {
+    if (!hasSessionRows()) {
+      setStatus('Paste rows first, then start session.', 'error');
+      return;
+    }
+    setSessionSetupOpen(false);
+  });
+}
 
 restoreTargetValue().catch(() => {
   // Best effort restore for target input.
+});
+
+setSessionReady(false);
+setResultsOpen(false);
+setSessionSetupOpen(true);
+
+chrome.storage.local.get(['excelPastedRows']).then((stored) => {
+  const restoredRows = String(stored.excelPastedRows || '').trim();
+  if (!restoredRows) {
+    setSessionSetupOpen(true);
+    setStatus('Paste rows to start this session.', '');
+    return;
+  }
+
+  pastedRowsInput.value = restoredRows;
+  setSessionReady(true);
+  setSessionSetupOpen(false);
 });
 
 chrome.storage.session.get(['lastResult', LAST_BATCH_KEY, LAST_VIEW_MODE_KEY]).then((stored) => {

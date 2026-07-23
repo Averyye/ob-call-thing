@@ -10,6 +10,27 @@
   <main class="shell">
     <div class="layout">
       <section class="controls-panel" aria-label="Lookup controls">
+        <section id="session-setup" class="excel-panel session-setup" aria-label="Session setup" hidden>
+          <!-- by Mo and Avery -->
+          <h2>Start Session</h2>
+          <p class="hint">Paste your copied Excel rows once, then run the compact call controls.</p>
+          <label for="assignment-target">Target number(s) in column A (optional, e.g. 7 or 7,8)</label>
+          <input id="assignment-target" type="text" placeholder="Leave blank to go top-down, or enter 7,8">
+          <p class="hint">Use commas for multiple targets (example: 7,8). Leave blank for top-to-bottom mode.</p>
+          <label for="pasted-rows">Paste copied rows here (Ctrl+V)</label>
+          <textarea id="pasted-rows" rows="5" placeholder="Paste copied Excel rows here"></textarea>
+          <button id="start-session" type="button">Start session</button>
+          <button id="close-session-setup" type="button">Back to compact view</button>
+
+          <button id="run-renewal-autocheck" type="button">Renewal Radar: check all copied billing numbers</button>
+
+          <section class="workbook-sync-panel" aria-label="Local file sync">
+            <h3>Disposition Local File Sync</h3>
+            <p class="hint">Pick a local CSV file once for this popup session. Save will append each disposition row into that file.</p>
+            <button id="pick-local-disposition-file" type="button">Pick local CSV file</button>
+          </section>
+        </section>
+
         <header>
           <p class="eyebrow">ESG PORTAL</p>
           <h1>Customer lookup</h1>
@@ -22,28 +43,15 @@
           <input id="customer-number" name="billingNumber" inputmode="text" autocomplete="off" placeholder="Enter billing number" required>
           <button id="lookup-button" type="submit">Find account</button>
           <button id="dial-button" type="button">Dial</button>
-        </form>
 
-        <section class="excel-panel" aria-label="Excel tab connector">
-          <!-- by Mo and Avery -->
-          <h2>Excel Copy/Paste (recommended)</h2>
-          <label for="assignment-target">Target number(s) in column A (optional, e.g. 7 or 7,8)</label>
-          <input id="assignment-target" type="text" placeholder="Leave blank to go top-down, or enter 7,8">
-          <p class="hint">Paste copied Excel rows in the box below. Use commas for multiple targets (example: 7,8). Leave blank to step through rows top to bottom.</p>
-          <label for="pasted-rows">Paste copied rows here (Ctrl+V)</label>
-          <textarea id="pasted-rows" rows="3" placeholder="Paste copied Excel rows here"></textarea>
-          <div class="row-nav-buttons">
+          <div class="row-nav-buttons compact-nav">
             <button id="pull-previous-billing-number" type="button">Previous billing number</button>
             <button id="pull-next-billing-number" type="button">Next billing number</button>
           </div>
-          <button id="run-renewal-autocheck" type="button">Renewal Radar: check all copied billing numbers</button>
-
-          <section class="workbook-sync-panel" aria-label="Local file sync">
-            <h3>Disposition Local File Sync</h3>
-            <p class="hint">Pick a local CSV file once for this popup session. Save will append each disposition row into that file.</p>
-            <button id="pick-local-disposition-file" type="button">Pick local CSV file</button>
-          </section>
-        </section>
+          <button id="open-session-setup" type="button">Edit pasted rows</button>
+          <p id="session-ready-badge" class="session-ready-badge" hidden>Session ready: pasted rows loaded</p>
+        </form>
+        <p id="status-inline" class="status" role="status">Ready.</p>
       </section>
 
       <section class="results-panel" aria-label="Lookup results panel">

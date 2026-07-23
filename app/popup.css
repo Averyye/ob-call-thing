@@ -13,12 +13,20 @@
 * { box-sizing: border-box; }
 
 body {
-  width: 780px;
+  width: 430px;
   margin: 0;
   color: var(--ink);
   background: linear-gradient(145deg, #f7fafb 0%, var(--wash) 100%);
   font: 14px/1.45 'Trebuchet MS', sans-serif;
-  transition: background-color .25s ease;
+  transition: background-color .25s ease, width .24s ease;
+}
+
+body.results-open {
+  width: 780px;
+}
+
+body.setup-open {
+  width: 520px;
 }
 
 body.renewal-state-green {
@@ -33,9 +41,13 @@ body.renewal-state-red {
 
 .layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   align-items: start;
+}
+
+.layout.results-open {
+  grid-template-columns: minmax(0, 1fr) 320px;
 }
 /* by Mo and Avery */
 
@@ -45,6 +57,57 @@ body.renewal-state-red {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.92);
   padding: 10px;
+}
+
+.controls-panel {
+  min-width: 0;
+}
+
+.results-panel {
+  display: none;
+}
+
+.layout.results-open .results-panel {
+  display: block;
+  width: 320px;
+  max-width: 320px;
+  padding: 10px;
+  border-width: 1px;
+  animation: panelSlideIn .26s ease-out both;
+}
+
+@keyframes panelSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.controls-panel,
+.results-panel,
+.excel-panel,
+.disposition-panel,
+.workbook-sync-panel {
+  animation: panelRise .45s ease-out both;
+}
+
+.results-panel {
+  animation-delay: .08s;
+}
+
+@keyframes panelRise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .shell.flash-renewal-green {
@@ -86,8 +149,23 @@ select:focus { outline: 2px solid #a9c9e5; border-color: var(--blue); }
 textarea { width: 100%; border: 1px solid var(--line); border-radius: 5px; padding: 9px 10px; color: var(--ink); background: #fff; font: inherit; resize: vertical; }
 textarea:focus { outline: 2px solid #a9c9e5; border-color: var(--blue); }
 button { width: 100%; margin-top: 7px; border: 0; border-radius: 5px; padding: 9px; color: #fff; background: var(--blue); font: 700 14px 'Trebuchet MS', sans-serif; cursor: pointer; }
-button:hover { background: var(--blue-dark); }
+button:hover { background: var(--blue-dark); transform: translateY(-1px); }
+button:active { transform: translateY(0); }
 button:disabled { cursor: wait; opacity: .65; }
+
+input,
+select,
+textarea,
+button {
+  transition: transform .16s ease, box-shadow .2s ease, background-color .2s ease, border-color .2s ease;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 14px rgba(36, 99, 166, 0.15);
+}
 
 #dial-button {
   background: #2d6e47;
@@ -117,6 +195,16 @@ button:disabled { cursor: wait; opacity: .65; }
 .status.error { color: var(--error); }
 .status.success { color: var(--success); }
 
+.status.success,
+.status.error {
+  animation: statusFlash .5s ease-out;
+}
+
+@keyframes statusFlash {
+  0% { opacity: 0; transform: translateY(2px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
 body.renewal-state-green .status {
   color: var(--success);
   font-weight: 700;
@@ -131,6 +219,46 @@ body.renewal-state-red .status {
   margin-top: 8px;
   border-top: 1px solid var(--line);
   padding-top: 8px;
+}
+
+.session-setup {
+  margin-top: 0;
+  border-top: 0;
+  padding-top: 0;
+}
+
+body.setup-open .session-setup {
+  display: block;
+}
+
+body:not(.setup-open) .session-setup {
+  display: none;
+}
+
+body.setup-open header,
+body.setup-open #lookup-form,
+body.setup-open #status-inline {
+  display: none;
+}
+
+body:not(.session-ready) #lookup-form,
+body:not(.session-ready) #open-session-setup {
+  opacity: .45;
+  pointer-events: none;
+}
+
+body.session-ready #lookup-form,
+body.session-ready #open-session-setup {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#close-session-setup {
+  background: #5f6c79;
+}
+
+#close-session-setup:hover {
+  background: #4f5b66;
 }
 
 .disposition-panel {
@@ -165,6 +293,10 @@ body.renewal-state-red .status {
   margin-top: 6px;
 }
 
+.compact-nav {
+  margin-top: 8px;
+}
+
 .row-nav-buttons button {
   margin-top: 0;
 }
@@ -174,6 +306,18 @@ body.renewal-state-red .status {
   color: var(--muted);
   font-size: 13px;
   font-weight: 700;
+}
+.session-ready-badge {
+  margin: 8px 0 0;
+  padding: 6px 9px;
+  border-radius: 999px;
+  border: 1px solid #9fd7b4;
+  background: #eaf8ef;
+  color: #215537;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .2px;
+  display: inline-block;
 }
 
 .disposition-panel h2 {
@@ -244,6 +388,15 @@ body.renewal-state-red .status {
 .result-row { display: flex; justify-content: space-between; gap: 16px; padding: 7px 0; border-bottom: 1px solid #e8edf0; }
 .result-label { color: var(--muted); }
 
+.result-row-enter {
+  animation: rowFadeIn .28s ease both;
+}
+
+@keyframes rowFadeIn {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
 .result-row-status {
   margin: 4px 0;
   padding: 8px 10px;
@@ -259,22 +412,40 @@ body.renewal-state-red .status {
 .result-row-status.status-tone-good {
   background: #eaf8ef;
   border-color: #9fd7b4;
+  animation: statusGlowGood 1.2s ease-out;
 }
 
 .result-row-status.status-tone-warn {
   background: #fff6e8;
   border-color: #ebc78a;
+  animation: statusGlowWarn 1.2s ease-out;
 }
 
 .result-row-status.status-tone-bad {
   background: #ffebeb;
   border-color: #e7aaaa;
+  animation: statusGlowBad 1.2s ease-out;
 }
 
 .result-row-status.status-tone-neutral,
 .result-row-status.status-tone-muted {
   background: #f4f7fa;
   border-color: #d7dde4;
+}
+
+@keyframes statusGlowGood {
+  0% { box-shadow: 0 0 0 0 rgba(64, 168, 107, 0.45); }
+  100% { box-shadow: 0 0 0 8px rgba(64, 168, 107, 0); }
+}
+
+@keyframes statusGlowWarn {
+  0% { box-shadow: 0 0 0 0 rgba(237, 166, 53, 0.45); }
+  100% { box-shadow: 0 0 0 8px rgba(237, 166, 53, 0); }
+}
+
+@keyframes statusGlowBad {
+  0% { box-shadow: 0 0 0 0 rgba(214, 62, 62, 0.45); }
+  100% { box-shadow: 0 0 0 8px rgba(214, 62, 62, 0); }
 }
 
 .result-value { max-width: 205px; text-align: right; font-weight: 700; overflow-wrap: anywhere; }
@@ -350,6 +521,11 @@ body.renewal-state-red .status {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
   .shell.flash-renewal-green,
   .shell.flash-renewal-red {
     animation: none;
