@@ -31,17 +31,16 @@
           <input id="assignment-target" type="text" placeholder="e.g. 10">
           <p class="hint">In Excel, select the rows, press Ctrl+C, then click the button below.</p>
           <label for="pasted-rows">Fallback: paste copied rows here (Ctrl+V)</label>
-          <textarea id="pasted-rows" rows="4" placeholder="Paste copied Excel rows here if clipboard read is blocked"></textarea>
+          <textarea id="pasted-rows" rows="3" placeholder="Paste copied Excel rows here if clipboard read is blocked"></textarea>
           <button id="pull-billing-number" type="button">Pull next billing number from copied rows</button>
           <button id="run-renewal-autocheck" type="button">Renewal Radar: check all copied billing numbers</button>
         </section>
-
-        <p class="credit">by Mo and Avery</p>
       </section>
 
       <section class="results-panel" aria-label="Lookup results panel">
         <!-- by Mo and Avery -->
         <h2 class="results-title">Lookup results</h2>
+        <p class="credit">by Mo and Avery</p>
         <p id="status" class="status" role="status">Ready.</p>
         <section id="results" class="results" aria-live="polite" hidden></section>
         <section id="renewed-results" class="renewed-results" hidden>
