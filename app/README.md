@@ -14,22 +14,14 @@ The extension does not request, store, or transmit portal credentials. It uses t
 
 Before searching, the extension takes the digits before the first dash in the entered billing number. It pads that search value with leading zeroes to eight digits when needed. For example, `1903977-45` is displayed as the billing number and searched as `01903977`.
 
-## Shared Excel (experimental)
+## Excel Copy/Paste workflow
 
-The popup includes an experimental Microsoft Graph connector for shared OneDrive/SharePoint workbooks.
+The popup supports an Excel copy/paste workflow without cloud APIs.
 
-1. Create an Azure app registration and configure a redirect URI using your extension ID:
-	- `https://<extension-id>.chromiumapp.org/microsoft-callback`
-2. Grant delegated permissions that include `Files.ReadWrite`.
-3. In the popup, enter:
-	- Tenant ID (`common` works for many org setups)
-	- Azure Client ID
-	- Drive ID
-	- Workbook Item ID
-	- Worksheet name
-	- Assignment value (the first-column value, e.g. `1` to `10`, or leave blank to use the rows top to bottom)
-4. Click **Connect Microsoft**, then **Pull billing number from sheet**.
-5. The extension scans column A for the assignment value and reads the billing number from the configured billing column (default column 2). If no assignment value is entered, it steps through the copied rows from top to bottom and autofills the billing number input.
+1. Copy rows from Excel.
+2. Paste them into the popup text area.
+3. Optionally set target value(s) from column A (examples: `7` or `7,8`). Leave blank for top-to-bottom mode.
+4. Use **Previous billing number** and **Next billing number** to step through matches.
 
 ## Disposition logging
 
@@ -44,6 +36,16 @@ The available dispositions are:
 - Do not call
 
 This uses browser downloads to keep the disposition buckets in separate files.
+
+## Optional local file sync
+
+You can also append each saved disposition into a local CSV file on your PC.
+
+1. In the popup, click **Pick local CSV file** in the **Disposition Local File Sync** section.
+2. Choose an existing `.csv` file and allow write permission.
+3. Click **Save** in the disposition section after each dial.
+
+Each save still updates the disposition CSV download file, and if a local file is selected it also appends a row there.
 
 ## Install locally
 

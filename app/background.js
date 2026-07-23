@@ -360,7 +360,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.tabs.update(tabId, { url: message.data.accountHref });
   }
   if (message.action === 'CONTRACTS_TAB_SELECTED') {
-    state.data = { ...state.data, ...message.data };
+    const nextStatus = String(message.data?.accountStatus || '').trim();
+    state.data = {
+      ...state.data,
+      ...message.data,
+      accountStatus: nextStatus || state.data.accountStatus || ''
+    };
     state.step = 'contracts';
     scheduleBootstrap(tabId, DEFAULT_BOOTSTRAP_DELAY_MS);
   }

@@ -1,5 +1,6 @@
-if (!globalThis.__esgLookupContentLoaded) {
-  globalThis.__esgLookupContentLoaded = true;
+const ESG_LOOKUP_CONTENT_VERSION = '2026-07-23-status-v2';
+if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
+  globalThis.__esgLookupContentVersion = ESG_LOOKUP_CONTENT_VERSION;
 (() => {
   const PORTAL_ORIGIN = 'https://affordable-ep.esgglobal.net';
   const SEARCH_PATH = '/enterpriseportal/home/customers/customerSearch';
@@ -117,6 +118,90 @@ if (!globalThis.__esgLookupContentLoaded) {
     return '';
   }
 
+  function findAccountStatus() {
+    const sanitizeStatusValue = (value) => {
+      const normalized = normalize(value);
+      if (!normalized) return '';
+
+      // Some layouts keep multiple labels on one line; cut status at the next known label.
+      const cutoffMatch = normalized.match(/\b(service address|total balance|account balance|last payment|autopay|last bill|commodity price|service contract|flow dates|territory|pricing plan|revenue class|bill method)\b/i);
+      const clipped = cutoffMatch ? normalized.slice(0, cutoffMatch.index).trim() : normalized;
+      return clipped.replace(/\s*\/\s*/g, '/');
+    };
+
+    const pickBestStatus = (candidates) => {
+      const cleaned = [...new Set(candidates.map(sanitizeStatusValue).filter(Boolean))];
+      if (!cleaned.length) return '';
+      const score = (value) => {
+        const v = lower(value);
+        let points = value.length;
+        if (v.includes('pending')) points += 80;
+        if (v.includes('/')) points += 45;
+        if (v.includes('move-out') || v.includes('move out') || v.includes('drop')) points += 35;
+        if (v.includes('active')) points += 20;
+        if (v.includes('closed') || v.includes('inactive') || v.includes('cancel')) points += 10;
+        return points;
+      };
+      return cleaned.sort((first, second) => score(second) - score(first))[0];
+    };
+
+    const fromLabel = sanitizeStatusValue(findValue('Status'));
+    const bodyText = String(document.body.innerText || '');
+    const lines = bodyText.split(/\r?\n/).map(normalize).filter(Boolean);
+
+    // Prefer explicit "STATUS: ..." lines when present because they include full compound values.
+    const inlineStatus = lines
+      .map((line) => {
+        const match = line.match(/^status\s*:\s*(.+)$/i);
+        return match ? sanitizeStatusValue(match[1]) : '';
+      })
+      .find(Boolean);
+
+    // Some pages render STATUS on one line and value on the next line.
+    let nextLineStatus = '';
+    const statusOnlyIndex = lines.findIndex((line) => /^status\s*:?$/i.test(line));
+    if (statusOnlyIndex >= 0) {
+      nextLineStatus = sanitizeStatusValue(lines[statusOnlyIndex + 1] || '');
+    }
+
+    // Raw text regex fallback catches layouts where label/value are rendered inline without easy DOM siblings.
+    const regexMatch = bodyText.match(/(?:^|\n)\s*status\s*[:：]\s*([^\n\r]+)/i);
+    const regexStatus = sanitizeStatusValue(regexMatch?.[1] || '');
+
+    // DOM sibling fallback handles key/value blocks where STATUS is one element and value is another.
+    const domCandidates = [];
+    const statusLabels = [...document.querySelectorAll('label,span,div,td,strong,b')]
+      .filter((element) => visible(element) && /^status\s*:?$/i.test(normalize(text(element))));
+    for (const labelElement of statusLabels) {
+      const siblingValue = sanitizeStatusValue(text(labelElement.nextElementSibling));
+      if (siblingValue) domCandidates.push(siblingValue);
+
+      const parent = labelElement.parentElement;
+      if (!parent) continue;
+      const siblingParts = [...parent.children]
+        .filter((child) => child !== labelElement)
+        .map(text)
+        .filter(Boolean);
+      if (siblingParts.length) domCandidates.push(sanitizeStatusValue(siblingParts.join(' ')));
+    }
+    const domStatus = domCandidates
+      .sort((first, second) => second.length - first.length)[0] || '';
+
+    const slashLineCandidate = lines.find((line) => /active\s*\/\s*pending/i.test(line) || /pending\s*(move-out|move out|drop)/i.test(line)) || '';
+    const compositeBodyMatch = bodyText.match(/\b(active\s*\/\s*pending[^\n\r]*)/i);
+    const compositeStatus = sanitizeStatusValue(compositeBodyMatch?.[1] || '');
+
+    return pickBestStatus([
+      compositeStatus,
+      slashLineCandidate,
+      inlineStatus,
+      nextLineStatus,
+      regexStatus,
+      domStatus,
+      fromLabel
+    ]);
+  }
+
   function contractRows() {
     for (const table of document.querySelectorAll('table')) {
       const headers = [...table.querySelectorAll('th,[role="columnheader"]')].map((header) => lower(text(header)));
@@ -214,6 +299,7 @@ if (!globalThis.__esgLookupContentLoaded) {
       customerName: customerNameFromResults || '',
       customerNumber,
       phone: findValue('Service Number') || findValue('Phone'),
+      accountStatus: findAccountStatus() || findValue('Status') || '',
       accountHref
     });
   }
@@ -222,12 +308,12 @@ if (!globalThis.__esgLookupContentLoaded) {
     let accountStatus = '';
     try {
       accountStatus = await waitFor(() => {
-        const value = findValue('Status');
+        const value = findAccountStatus();
         return value ? value : null;
       }, 7000);
     } catch {
       // Continue even if Status is late/missing so contracts can still load.
-      accountStatus = findValue('Status') || '';
+      accountStatus = findAccountStatus() || '';
     }
     const serviceContractsTab = await waitFor(() => findTab('Service Contracts'));
     serviceContractsTab.click();

@@ -206,6 +206,27 @@ body.renewal-state-red .status {
   background: #1a544b;
 }
 
+.workbook-sync-panel {
+  margin-top: 10px;
+  border-top: 1px dashed var(--line);
+  padding-top: 8px;
+}
+
+.workbook-sync-panel h3 {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+#pick-local-disposition-file {
+  background: #4f3a7f;
+}
+
+#pick-local-disposition-file:hover {
+  background: #3e2e63;
+}
+
 .results-title {
   margin: 0;
   color: var(--muted);
@@ -222,6 +243,39 @@ body.renewal-state-red .status {
 }
 .result-row { display: flex; justify-content: space-between; gap: 16px; padding: 7px 0; border-bottom: 1px solid #e8edf0; }
 .result-label { color: var(--muted); }
+
+.result-row-status {
+  margin: 4px 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #d7dde4;
+}
+
+.result-row-status .result-label,
+.result-row-status .result-value {
+  font-weight: 700;
+}
+
+.result-row-status.status-tone-good {
+  background: #eaf8ef;
+  border-color: #9fd7b4;
+}
+
+.result-row-status.status-tone-warn {
+  background: #fff6e8;
+  border-color: #ebc78a;
+}
+
+.result-row-status.status-tone-bad {
+  background: #ffebeb;
+  border-color: #e7aaaa;
+}
+
+.result-row-status.status-tone-neutral,
+.result-row-status.status-tone-muted {
+  background: #f4f7fa;
+  border-color: #d7dde4;
+}
 
 .result-value { max-width: 205px; text-align: right; font-weight: 700; overflow-wrap: anywhere; }
 .result-value.muted { color: var(--muted); font-weight: 500; }

@@ -15,6 +15,7 @@ const pullPreviousBillingNumberButton = document.querySelector('#pull-previous-b
 const pullNextBillingNumberButton = document.querySelector('#pull-next-billing-number');
 const pastedRowsInput = document.querySelector('#pasted-rows');
 const runRenewalAutocheckButton = document.querySelector('#run-renewal-autocheck');
+const pickLocalDispositionFileButton = document.querySelector('#pick-local-disposition-file');
 const renewedResults = document.querySelector('#renewed-results');
 const renewalCurrent = document.querySelector('#renewal-current');
 const renewedSummary = document.querySelector('#renewed-summary');
@@ -23,6 +24,7 @@ const unknownSummary = document.querySelector('#unknown-summary');
 const unknownList = document.querySelector('#unknown-list');
 
 let isBatchRunning = false;
+let localDispositionFileHandle = null;
 const LAST_BATCH_KEY = 'lastRenewalRadarResult';
 const LAST_VIEW_MODE_KEY = 'lastDisplayMode';
 const DISPOSITION_LOG_KEY = 'dispositionLogs';
@@ -71,11 +73,27 @@ function persistBatchSnapshot(renewedEntries, notRenewedCount, unknownEntries, t
   }).catch(() => {});
 }
 
+function statusTone(accountStatus) {
+  const value = String(accountStatus || '').toLowerCase();
+  if (!value) return 'muted';
+  if (value.includes('inactive') || value.includes('closed') || value.includes('cancel')) return 'bad';
+
+  const compact = value.replace(/\s+/g, ' ').trim();
+  const isPureActive = compact === 'active';
+  if (isPureActive) return 'good';
+
+  // Any non-empty state that is not purely Active and not closed-like is treated as in-between.
+  return 'warn';
+}
+
 function render(data) {
   results.replaceChildren();
   for (const [label, key] of fields) {
     const row = document.createElement('div');
     row.className = 'result-row';
+    if (key === 'accountStatus') {
+      row.classList.add('result-row-status', `status-tone-${statusTone(data[key])}`);
+    }
     const labelElement = document.createElement('span');
     labelElement.className = 'result-label';
     labelElement.textContent = label;
@@ -164,6 +182,7 @@ function setActionButtonsDisabled(disabled) {
   pullPreviousBillingNumberButton.disabled = disabled;
   pullNextBillingNumberButton.disabled = disabled;
   runRenewalAutocheckButton.disabled = disabled;
+  if (pickLocalDispositionFileButton) pickLocalDispositionFileButton.disabled = disabled;
 }
 
 function normalizeDialNumber(value) {
@@ -179,6 +198,77 @@ function normalizeDisposition(value) {
 
 function dispositionFileSlug(value) {
   return normalizeDisposition(value).replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'disposition';
+}
+
+async function ensureLocalFileWritePermission(fileHandle) {
+  if (!fileHandle) return false;
+  if (typeof fileHandle.queryPermission === 'function') {
+    const current = await fileHandle.queryPermission({ mode: 'readwrite' });
+    if (current === 'granted') return true;
+  }
+  if (typeof fileHandle.requestPermission === 'function') {
+    const requested = await fileHandle.requestPermission({ mode: 'readwrite' });
+    return requested === 'granted';
+  }
+  return true;
+}
+
+async function pickLocalDispositionFile() {
+  if (typeof window.showOpenFilePicker !== 'function') {
+    throw new Error('Local file picker is not available in this browser context.');
+  }
+
+  const [fileHandle] = await window.showOpenFilePicker({
+    multiple: false,
+    types: [{
+      description: 'CSV files',
+      accept: { 'text/csv': ['.csv'] }
+    }]
+  });
+
+  const granted = await ensureLocalFileWritePermission(fileHandle);
+  if (!granted) {
+    throw new Error('Write permission was not granted for the selected file.');
+  }
+
+  localDispositionFileHandle = fileHandle;
+  return fileHandle;
+}
+
+async function appendDispositionToLocalFile(record) {
+  if (!localDispositionFileHandle) {
+    return false;
+  }
+
+  const granted = await ensureLocalFileWritePermission(localDispositionFileHandle);
+  if (!granted) {
+    throw new Error('Write permission is required to update the selected local file.');
+  }
+
+  const file = await localDispositionFileHandle.getFile();
+  const existing = await file.text();
+  const header = 'billingNumber,customerName,contractExpirationDate,dialedNumber,disposition,savedAt';
+  const line = [
+    record.billingNumber,
+    record.customerName,
+    record.contractExpirationDate,
+    record.dialedNumber,
+    record.disposition,
+    record.savedAt
+  ].map(escapeCsvValue).join(',');
+
+  let nextContents = existing;
+  if (!nextContents.trim()) {
+    nextContents = `${header}\r\n${line}\r\n`;
+  } else {
+    if (!nextContents.endsWith('\n')) nextContents += '\r\n';
+    nextContents += `${line}\r\n`;
+  }
+
+  const writable = await localDispositionFileHandle.createWritable();
+  await writable.write(nextContents);
+  await writable.close();
+  return true;
 }
 
 function escapeCsvValue(value) {
@@ -260,7 +350,12 @@ async function saveSelectedDisposition() {
 
   const records = await saveDispositionRecord(record);
   await downloadDispositionCsv(disposition, records);
-  setStatus(`Saved ${disposition} for ${record.billingNumber || 'the latest customer'} and updated its CSV file.`, 'success');
+  const wroteToLocalFile = await appendDispositionToLocalFile(record);
+  if (wroteToLocalFile) {
+    setStatus(`Saved ${disposition} and appended it to your selected local file.`, 'success');
+  } else {
+    setStatus(`Saved ${disposition} and updated its CSV download file.`, 'success');
+  }
 }
 
 async function dialLatestCustomer() {
@@ -633,7 +728,7 @@ dialButton.addEventListener('click', async () => {
 saveDispositionButton.addEventListener('click', async () => {
   if (isBatchRunning) return;
   setActionButtonsDisabled(true);
-  setStatus('Saving disposition and updating the CSV file...');
+  setStatus('Saving disposition...');
   try {
     await saveSelectedDisposition();
   } catch (error) {
@@ -642,6 +737,22 @@ saveDispositionButton.addEventListener('click', async () => {
     setActionButtonsDisabled(false);
   }
 });
+
+if (pickLocalDispositionFileButton) {
+  pickLocalDispositionFileButton.addEventListener('click', async () => {
+    if (isBatchRunning) return;
+    setActionButtonsDisabled(true);
+    setStatus('Opening local file picker...');
+    try {
+      const handle = await pickLocalDispositionFile();
+      setStatus(`Local file selected: ${handle.name}`, 'success');
+    } catch (error) {
+      setStatus(error.message || 'Could not select a local file.', 'error');
+    } finally {
+      setActionButtonsDisabled(false);
+    }
+  });
+}
 
 runRenewalAutocheckButton.addEventListener('click', async () => {
   if (isBatchRunning) return;
