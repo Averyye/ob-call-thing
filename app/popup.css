@@ -80,7 +80,9 @@ h1 { margin: 0; font: 700 22px/1.1 'Trebuchet MS', sans-serif; letter-spacing: 0
 
 label { display: block; margin-bottom: 4px; font-weight: 700; }
 input { width: 100%; border: 1px solid var(--line); border-radius: 5px; padding: 9px 10px; color: var(--ink); background: #fff; font: inherit; }
+select { width: 100%; border: 1px solid var(--line); border-radius: 5px; padding: 9px 10px; color: var(--ink); background: #fff; font: inherit; }
 input:focus { outline: 2px solid #a9c9e5; border-color: var(--blue); }
+select:focus { outline: 2px solid #a9c9e5; border-color: var(--blue); }
 textarea { width: 100%; border: 1px solid var(--line); border-radius: 5px; padding: 9px 10px; color: var(--ink); background: #fff; font: inherit; resize: vertical; }
 textarea:focus { outline: 2px solid #a9c9e5; border-color: var(--blue); }
 button { width: 100%; margin-top: 7px; border: 0; border-radius: 5px; padding: 9px; color: #fff; background: var(--blue); font: 700 14px 'Trebuchet MS', sans-serif; cursor: pointer; }
@@ -93,6 +95,22 @@ button:disabled { cursor: wait; opacity: .65; }
 
 #dial-button:hover {
   background: #215537;
+}
+
+#save-disposition {
+  background: #8a5b24;
+}
+
+#save-disposition:hover {
+  background: #704816;
+}
+
+.disposition-controls #save-disposition {
+  width: auto;
+  margin-top: 0;
+  padding: 8px 14px;
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 .status { min-height: 16px; margin: 6px 0 0; color: var(--muted); }
@@ -115,7 +133,50 @@ body.renewal-state-red .status {
   padding-top: 8px;
 }
 
+.disposition-panel {
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.disposition-compact h3 {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.disposition-controls {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.disposition-compact .hint {
+  margin-top: 4px;
+  font-size: 11px;
+}
+
+.row-nav-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.row-nav-buttons button {
+  margin-top: 0;
+}
+
 .excel-panel h2 {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.disposition-panel h2 {
   margin: 0 0 6px;
   color: var(--muted);
   font-size: 13px;

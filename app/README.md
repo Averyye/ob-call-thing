@@ -27,11 +27,23 @@ The popup includes an experimental Microsoft Graph connector for shared OneDrive
 	- Drive ID
 	- Workbook Item ID
 	- Worksheet name
-	- Assignment value (the first-column value, e.g. `1` to `10`)
+	- Assignment value (the first-column value, e.g. `1` to `10`, or leave blank to use the rows top to bottom)
 4. Click **Connect Microsoft**, then **Pull billing number from sheet**.
-5. The extension scans column A for the assignment value and reads the billing number from the configured billing column (default column 2), then autofills the billing number input.
+5. The extension scans column A for the assignment value and reads the billing number from the configured billing column (default column 2). If no assignment value is entered, it steps through the copied rows from top to bottom and autofills the billing number input.
 
-This feature is a draft for experimentation and does not yet include advanced conflict-safe writeback logic.
+## Disposition logging
+
+After a lookup and dial, pick a disposition in the popup and click **Save disposition**. The extension stores the latest billing number, customer name, contract expiration date, and dialed number locally, then updates a CSV file for that disposition in your downloads folder.
+
+The available dispositions are:
+
+- Voicemail
+- No voicemail
+- Requested call back
+- Renewed contract
+- Do not call
+
+This uses browser downloads to keep the disposition buckets in separate files.
 
 ## Install locally
 

@@ -4,12 +4,15 @@ const popupBody = document.body;
 const input = document.querySelector('#customer-number');
 const button = document.querySelector('#lookup-button');
 const dialButton = document.querySelector('#dial-button');
+const dispositionSelect = document.querySelector('#disposition-select');
+const saveDispositionButton = document.querySelector('#save-disposition');
 const status = document.querySelector('#status');
 const results = document.querySelector('#results');
 // by Mo and Avery
 
 const assignmentTargetInput = document.querySelector('#assignment-target');
-const pullBillingNumberButton = document.querySelector('#pull-billing-number');
+const pullPreviousBillingNumberButton = document.querySelector('#pull-previous-billing-number');
+const pullNextBillingNumberButton = document.querySelector('#pull-next-billing-number');
 const pastedRowsInput = document.querySelector('#pasted-rows');
 const runRenewalAutocheckButton = document.querySelector('#run-renewal-autocheck');
 const renewedResults = document.querySelector('#renewed-results');
@@ -22,6 +25,14 @@ const unknownList = document.querySelector('#unknown-list');
 let isBatchRunning = false;
 const LAST_BATCH_KEY = 'lastRenewalRadarResult';
 const LAST_VIEW_MODE_KEY = 'lastDisplayMode';
+const DISPOSITION_LOG_KEY = 'dispositionLogs';
+const DISPOSITION_OPTIONS = [
+  'voicemail',
+  'no voicemail',
+  'requested call back',
+  'renewed contract',
+  'do not call'
+];
 
 const fields = [
   ['Customer', 'customerName'],
@@ -148,7 +159,10 @@ function hideRenewedBatchResults() {
 function setActionButtonsDisabled(disabled) {
   button.disabled = disabled;
   dialButton.disabled = disabled;
-  pullBillingNumberButton.disabled = disabled;
+  dispositionSelect.disabled = disabled;
+  saveDispositionButton.disabled = disabled;
+  pullPreviousBillingNumberButton.disabled = disabled;
+  pullNextBillingNumberButton.disabled = disabled;
   runRenewalAutocheckButton.disabled = disabled;
 }
 
@@ -159,11 +173,98 @@ function normalizeDialNumber(value) {
   return digitsOnly;
 }
 
-async function dialLatestCustomer() {
+function normalizeDisposition(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function dispositionFileSlug(value) {
+  return normalizeDisposition(value).replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'disposition';
+}
+
+function escapeCsvValue(value) {
+  const text = String(value ?? '');
+  if (/[",\r\n]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+function buildDispositionCsv(records) {
+  const header = ['billingNumber', 'customerName', 'contractExpirationDate', 'dialedNumber', 'disposition', 'savedAt'];
+  const lines = [header.join(',')];
+  for (const record of records) {
+    lines.push([
+      record.billingNumber,
+      record.customerName,
+      record.contractExpirationDate,
+      record.dialedNumber,
+      record.disposition,
+      record.savedAt
+    ].map(escapeCsvValue).join(','));
+  }
+  return lines.join('\r\n');
+}
+
+async function getDispositionLogs() {
+  const { dispositionLogs } = await chrome.storage.local.get(DISPOSITION_LOG_KEY);
+  return dispositionLogs || {};
+}
+
+async function saveDispositionRecord(record) {
+  const disposition = normalizeDisposition(record.disposition);
+  if (!DISPOSITION_OPTIONS.includes(disposition)) {
+    throw new Error('Choose a disposition before saving.');
+  }
+
+  const logs = await getDispositionLogs();
+  const updatedRecords = [...(logs[disposition] || []), record];
+  logs[disposition] = updatedRecords;
+  await chrome.storage.local.set({ [DISPOSITION_LOG_KEY]: logs });
+  return updatedRecords;
+}
+
+async function downloadDispositionCsv(disposition, records) {
+  const csv = buildDispositionCsv(records);
+  const url = `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
+  await chrome.downloads.download({
+    url,
+    filename: `esg-${dispositionFileSlug(disposition)}.csv`,
+    saveAs: false,
+    conflictAction: 'overwrite'
+  });
+}
+
+async function getLatestLookupResult() {
   const { lastResult } = await chrome.storage.session.get('lastResult');
   if (!lastResult) {
     throw new Error('Run Find account first so the customer details are available.');
   }
+  return lastResult;
+}
+
+async function saveSelectedDisposition() {
+  const disposition = normalizeDisposition(dispositionSelect.value);
+  if (!disposition) {
+    throw new Error('Choose a disposition before saving.');
+  }
+
+  const lastResult = await getLatestLookupResult();
+  const record = {
+    billingNumber: String(lastResult.billingNumber || '').trim(),
+    customerName: String(lastResult.customerName || '').trim(),
+    contractExpirationDate: String(lastResult.currentContractEnd || lastResult.renewalEnd || '').trim(),
+    dialedNumber: String(lastResult.phone || '').trim(),
+    disposition,
+    savedAt: new Date().toISOString()
+  };
+
+  const records = await saveDispositionRecord(record);
+  await downloadDispositionCsv(disposition, records);
+  setStatus(`Saved ${disposition} for ${record.billingNumber || 'the latest customer'} and updated its CSV file.`, 'success');
+}
+
+async function dialLatestCustomer() {
+  const lastResult = await getLatestLookupResult();
 
   const dialValue = normalizeDialNumber(lastResult.phone);
   if (!dialValue) {
@@ -255,6 +356,20 @@ function parseClipboardRows(clipboardText) {
   return lines.map((line) => line.split('\t').map((cell) => String(cell || '').trim()));
 }
 
+function parseTargetValues(targetValue) {
+  return String(targetValue || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function buildTargetCycleKey(targetValue) {
+  const parsedTargets = parseTargetValues(targetValue);
+  if (!parsedTargets.length) return '__top_down__';
+  const normalizedTargets = [...new Set(parsedTargets.map((value) => value.toLowerCase()))].sort();
+  return normalizedTargets.join(',');
+}
+
 function collectBillingNumbersFromRows(rows) {
   const seen = new Set();
   const billingNumbers = [];
@@ -285,19 +400,10 @@ function collectBillingNumbersFromRows(rows) {
 }
 
 async function readCopiedRowsText() {
-  let clipboardText = '';
-  try {
-    clipboardText = await navigator.clipboard.readText();
-  } catch {
-    clipboardText = '';
-  }
-
-  if (clipboardText.trim()) return clipboardText;
-
   const pastedText = String(pastedRowsInput.value || '').trim();
   if (pastedText) return pastedText;
 
-  throw new Error('Could not read clipboard. Copy rows with Ctrl+C, or paste rows into the fallback text box, then try again.');
+  throw new Error('Paste copied rows into the text box, then try again.');
 }
 
 function waitForLookupFinished(timeoutMs = 90000) {
@@ -362,13 +468,30 @@ async function runLookupForBillingNumber(tabId, billingNumber) {
 }
 
 function findBillingMatchesFromRows(rows, targetValue) {
-  const normalizedTarget = String(targetValue || '').trim();
-  const numericTarget = Number(normalizedTarget);
+  const parsedTargets = parseTargetValues(targetValue);
+  if (!parsedTargets.length) {
+    return rows
+      .map((cells, rowIndex) => ({ cells, rowIndex }))
+      .filter((row) => row.cells.length >= 4)
+      .map((row) => ({
+        rowIndex: row.rowIndex,
+        billingNumber: String(row.cells[3] || '').trim()
+      }))
+      .filter((row) => row.billingNumber);
+  }
+
+  const textTargets = new Set(parsedTargets.map((value) => value.toLowerCase()));
+  const numericTargets = new Set(
+    parsedTargets
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value))
+  );
+
   const matchesTarget = (value) => {
     const normalized = String(value || '').trim();
-    if (normalized === normalizedTarget) return true;
+    if (textTargets.has(normalized.toLowerCase())) return true;
     const numericValue = Number(normalized);
-    return Number.isFinite(numericTarget) && Number.isFinite(numericValue) && numericTarget === numericValue;
+    return Number.isFinite(numericValue) && numericTargets.has(numericValue);
   };
 
   return rows
@@ -382,46 +505,45 @@ function findBillingMatchesFromRows(rows, targetValue) {
     .filter((row) => row.billingNumber);
 }
 
-async function pullNextBillingNumberForTarget() {
+async function pullBillingNumberForTarget(direction = 1) {
   const targetValue = getTargetValue();
-  if (!targetValue) throw new Error('Enter a target number (1-10) first.');
-
-  let clipboardText = '';
-  try {
-    clipboardText = await navigator.clipboard.readText();
-  } catch {
-    clipboardText = '';
+  const parsedTargets = parseTargetValues(targetValue);
+  const pastedRowsText = String(pastedRowsInput.value || '').trim();
+  if (!pastedRowsText) {
+    throw new Error('Paste copied rows into the text box first.');
   }
 
-  if (!clipboardText.trim()) {
-    clipboardText = String(pastedRowsInput.value || '').trim();
-  }
-
-  if (!clipboardText) {
-    throw new Error('Could not read clipboard. Copy rows with Ctrl+C, or paste rows into the fallback text box, then try again.');
-  }
-
-  const rows = parseClipboardRows(clipboardText);
-  if (!rows.length) throw new Error('No readable rows found. Copy rows from Excel or paste them into the fallback text box.');
+  const rows = parseClipboardRows(pastedRowsText);
+  if (!rows.length) throw new Error('No readable rows found. Paste rows from Excel into the text box.');
 
   const matches = findBillingMatchesFromRows(rows, targetValue);
-  if (!matches.length) throw new Error(`No copied rows found where column A equals ${targetValue}.`);
+  if (!matches.length) {
+    throw new Error(parsedTargets.length
+      ? `No copied rows found where column A equals any of: ${parsedTargets.join(', ')}.`
+      : 'No billing numbers found in the copied rows.');
+  }
 
   const cycleState = await getCycleState();
-  const datasetKey = `${targetValue}|${rows.length}|${rows[0]?.join('|') || ''}`;
+  const datasetKey = `${buildTargetCycleKey(targetValue)}|${rows.length}|${rows[0]?.join('|') || ''}`;
 
   let nextPointer = Number.isInteger(cycleState[datasetKey]) ? cycleState[datasetKey] : 0;
   if (nextPointer < 0 || nextPointer >= matches.length) nextPointer = 0;
 
-  const selected = matches[nextPointer];
-  const newPointer = (nextPointer + 1) % matches.length;
+  const isPreviousDirection = direction < 0;
+  const selectedIndex = isPreviousDirection
+    ? (nextPointer - 2 + matches.length) % matches.length
+    : nextPointer;
+  const selected = matches[selectedIndex];
+  const newPointer = isPreviousDirection
+    ? (selectedIndex + 1) % matches.length
+    : (nextPointer + 1) % matches.length;
 
   await persistTargetValue();
   await setCycleIndex(datasetKey, newPointer);
 
   return {
     billingNumber: selected.billingNumber,
-    position: nextPointer + 1,
+    position: selectedIndex + 1,
     total: matches.length
   };
 }
@@ -457,18 +579,37 @@ form.addEventListener('submit', async (event) => {
   }
 });
 
-pullBillingNumberButton.addEventListener('click', async () => {
+pullPreviousBillingNumberButton.addEventListener('click', async () => {
   if (isBatchRunning) return;
-  pullBillingNumberButton.disabled = true;
-  setStatus('Reading active Excel tab...');
+  pullPreviousBillingNumberButton.disabled = true;
+  pullNextBillingNumberButton.disabled = true;
+  setStatus('Reading pasted rows...');
   try {
-    const picked = await pullNextBillingNumberForTarget();
+    const picked = await pullBillingNumberForTarget(-1);
     input.value = picked.billingNumber;
-    setStatus(`Loaded ${picked.billingNumber} (${picked.position}/${picked.total})`, 'success');
+    setStatus(`Loaded previous ${picked.billingNumber} (${picked.position}/${picked.total})`, 'success');
   } catch (error) {
-    setStatus(error.message || 'Could not pull billing number from active Excel tab.', 'error');
+    setStatus(error.message || 'Could not read billing numbers from pasted rows.', 'error');
   } finally {
-    pullBillingNumberButton.disabled = false;
+    pullPreviousBillingNumberButton.disabled = false;
+    pullNextBillingNumberButton.disabled = false;
+  }
+});
+
+pullNextBillingNumberButton.addEventListener('click', async () => {
+  if (isBatchRunning) return;
+  pullPreviousBillingNumberButton.disabled = true;
+  pullNextBillingNumberButton.disabled = true;
+  setStatus('Reading pasted rows...');
+  try {
+    const picked = await pullBillingNumberForTarget(1);
+    input.value = picked.billingNumber;
+    setStatus(`Loaded next ${picked.billingNumber} (${picked.position}/${picked.total})`, 'success');
+  } catch (error) {
+    setStatus(error.message || 'Could not read billing numbers from pasted rows.', 'error');
+  } finally {
+    pullPreviousBillingNumberButton.disabled = false;
+    pullNextBillingNumberButton.disabled = false;
   }
 });
 
@@ -476,11 +617,27 @@ dialButton.addEventListener('click', async () => {
   if (isBatchRunning) return;
   setActionButtonsDisabled(true);
   setStatus('Opening Sharpen and filling the dial field...');
+  let dialSucceeded = false;
   try {
     await dialLatestCustomer();
-    setStatus('Sharpen tab focused and dial field populated.', 'success');
+    setStatus('Sharpen tab focused and dial field populated. Choose a disposition and save it.', 'success');
+    dialSucceeded = true;
   } catch (error) {
     setStatus(error.message || 'Dial failed.', 'error');
+  } finally {
+    setActionButtonsDisabled(false);
+    if (dialSucceeded) dispositionSelect.focus();
+  }
+});
+
+saveDispositionButton.addEventListener('click', async () => {
+  if (isBatchRunning) return;
+  setActionButtonsDisabled(true);
+  setStatus('Saving disposition and updating the CSV file...');
+  try {
+    await saveSelectedDisposition();
+  } catch (error) {
+    setStatus(error.message || 'Could not save the disposition.', 'error');
   } finally {
     setActionButtonsDisabled(false);
   }
@@ -503,7 +660,7 @@ runRenewalAutocheckButton.addEventListener('click', async () => {
     const clipboardText = await readCopiedRowsText();
     const rows = parseClipboardRows(clipboardText);
     if (!rows.length) {
-      throw new Error('No readable rows found. Copy rows from Excel or paste them into the fallback text box.');
+      throw new Error('No readable rows found. Paste rows from Excel into the text box.');
     }
 
     const { billingNumbers, unknownEntries: inputUnknownEntries } = collectBillingNumbersFromRows(rows);

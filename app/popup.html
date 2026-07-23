@@ -27,12 +27,15 @@
         <section class="excel-panel" aria-label="Excel tab connector">
           <!-- by Mo and Avery -->
           <h2>Excel Copy/Paste (recommended)</h2>
-          <label for="assignment-target">Target number in column A (1-10)</label>
-          <input id="assignment-target" type="text" placeholder="e.g. 10">
-          <p class="hint">In Excel, select the rows, press Ctrl+C, then click the button below.</p>
-          <label for="pasted-rows">Fallback: paste copied rows here (Ctrl+V)</label>
-          <textarea id="pasted-rows" rows="3" placeholder="Paste copied Excel rows here if clipboard read is blocked"></textarea>
-          <button id="pull-billing-number" type="button">Pull next billing number from copied rows</button>
+          <label for="assignment-target">Target number(s) in column A (optional, e.g. 7 or 7,8)</label>
+          <input id="assignment-target" type="text" placeholder="Leave blank to go top-down, or enter 7,8">
+          <p class="hint">Paste copied Excel rows in the box below. Use commas for multiple targets (example: 7,8). Leave blank to step through rows top to bottom.</p>
+          <label for="pasted-rows">Paste copied rows here (Ctrl+V)</label>
+          <textarea id="pasted-rows" rows="3" placeholder="Paste copied Excel rows here"></textarea>
+          <div class="row-nav-buttons">
+            <button id="pull-previous-billing-number" type="button">Previous billing number</button>
+            <button id="pull-next-billing-number" type="button">Next billing number</button>
+          </div>
           <button id="run-renewal-autocheck" type="button">Renewal Radar: check all copied billing numbers</button>
         </section>
       </section>
@@ -43,6 +46,21 @@
         <p class="credit">by Mo and Avery</p>
         <p id="status" class="status" role="status">Ready.</p>
         <section id="results" class="results" aria-live="polite" hidden></section>
+        <section class="disposition-panel disposition-compact" aria-label="Disposition logger">
+          <h3>Disposition</h3>
+          <div class="disposition-controls">
+            <select id="disposition-select" aria-label="Choose a disposition">
+              <option value="" selected>Select a disposition</option>
+              <option value="voicemail">Voicemail</option>
+              <option value="no voicemail">No voicemail</option>
+              <option value="requested call back">Requested call back</option>
+              <option value="renewed contract">Renewed contract</option>
+              <option value="do not call">Do not call</option>
+            </select>
+            <button id="save-disposition" type="button">Save</button>
+          </div>
+          <p class="hint">After dialing, pick a disposition and save it.</p>
+        </section>
         <section id="renewed-results" class="renewed-results" hidden>
           <h3>Renewal Radar results</h3>
           <p id="renewal-current" class="renewal-current" hidden></p>

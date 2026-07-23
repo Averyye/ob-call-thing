@@ -3,7 +3,7 @@
   "name": "ESG Customer Account Lookup",
   "version": "0.1.0",
   "description": "Look up customer contact, contract, renewal, and billing details in the signed-in ESG portal.",
-  "permissions": ["activeTab", "tabs", "storage", "scripting", "clipboardRead"],
+  "permissions": ["activeTab", "tabs", "storage", "scripting", "clipboardRead", "downloads"],
   "host_permissions": [
     "https://affordable-ep.esgglobal.net/*",
     "https://app.iz1.sharpen.cx/*",
