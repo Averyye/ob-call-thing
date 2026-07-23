@@ -3,7 +3,7 @@ const PORTAL_SEARCH_URL = 'https://affordable-ep.esgglobal.net/enterpriseportal/
 const SHARPEN_DASHBOARD_URL = 'https://app.iz1.sharpen.cx/fathomQ/dashboard/';
 const SHARPEN_ORIGIN = 'https://app.iz1.sharpen.cx/';
 const SEARCH_BOOTSTRAP_DELAY_MS = 300;
-const DEFAULT_BOOTSTRAP_DELAY_MS = 40;
+const DEFAULT_BOOTSTRAP_DELAY_MS = 40; // by Mo and Avery
 
 function normalizeDialNumber(value) {
   const digitsOnly = String(value || '').replace(/\D/g, '');
@@ -61,64 +61,72 @@ async function injectDialValueIntoSharpen(tabId, dialValue, customer = {}) {
   const normalizedDialValue = normalizeDialNumber(dialValue);
   if (!normalizedDialValue) throw new Error('No dial number was provided.');
 
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const [result] = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: ({ value, customerName, billingNumber, customerNumber }) => {
-        const normalize = (textValue) => String(textValue || '').replace(/\s+/g, ' ').trim().toLowerCase();
-        const visible = (element) => Boolean(element && element.getClientRects().length);
-        const dispatchInputEvents = (input) => {
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          input.dispatchEvent(new Event('change', { bubbles: true }));
-        };
-        const setNativeValue = (input, nextValue) => {
-          const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-          valueSetter?.call(input, nextValue);
-        };
-        const findDialInput = () => {
-          const callButton = [...document.querySelectorAll('button,a,[role="button"]')]
-            .find((element) => visible(element) && normalize(element.textContent).includes('call'));
-          if (callButton) {
-            const container = callButton.closest('div,form,section') || callButton.parentElement;
-            if (container) {
-              const nearbyInput = [...container.querySelectorAll('input')]
-                .find((input) => visible(input) && !input.disabled && !input.readOnly && input.type !== 'hidden');
-              if (nearbyInput) return nearbyInput;
-            }
+  const [result] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: async ({ value, customerName, billingNumber, customerNumber }) => {
+      const normalize = (textValue) => String(textValue || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      const visible = (element) => Boolean(element && element.getClientRects().length);
+      const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const dispatchInputEvents = (input) => {
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      const setNativeValue = (input, nextValue) => {
+        const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+        valueSetter?.call(input, nextValue);
+      };
+      const findDialInput = () => {
+        const callButton = [...document.querySelectorAll('button,a,[role="button"]')]
+          .find((element) => visible(element) && normalize(element.textContent).includes('call'));
+        if (callButton) {
+          const container = callButton.closest('div,form,section') || callButton.parentElement;
+          if (container) {
+            const nearbyInput = [...container.querySelectorAll('input')]
+              .find((input) => visible(input) && !input.disabled && !input.readOnly && input.type !== 'hidden');
+            if (nearbyInput) return nearbyInput;
           }
-          return [...document.querySelectorAll('input')].find((input) => {
-            if (!visible(input) || input.disabled || input.readOnly || input.type === 'hidden') return false;
-            const placeholder = normalize(input.placeholder);
-            const ariaLabel = normalize(input.getAttribute('aria-label'));
-            return placeholder.includes('number') || placeholder.includes('phone') || ariaLabel.includes('number') || ariaLabel.includes('phone');
-          }) || null;
-        };
-
-        const dialInput = findDialInput();
-        if (!dialInput) return { ok: false, reason: 'dial input not found' };
-
-        dialInput.focus();
-        setNativeValue(dialInput, value);
-        dispatchInputEvents(dialInput);
-
-        const metadata = [customerName, billingNumber, customerNumber].filter(Boolean).join(' | ');
-        if (metadata) {
-          dialInput.setAttribute('data-esg-customer', metadata);
         }
+        return [...document.querySelectorAll('input')].find((input) => {
+          if (!visible(input) || input.disabled || input.readOnly || input.type === 'hidden') return false;
+          const placeholder = normalize(input.placeholder);
+          const ariaLabel = normalize(input.getAttribute('aria-label'));
+          return placeholder.includes('number') || placeholder.includes('phone') || ariaLabel.includes('number') || ariaLabel.includes('phone');
+        }) || null;
+      };
 
-        return { ok: true };
-      },
-      args: [{
-        value: normalizedDialValue,
-        customerName: String(customer.name || '').trim(),
-        billingNumber: String(customer.billingNumber || '').trim(),
-        customerNumber: String(customer.customerNumber || '').trim()
-      }]
-    });
+      const dialInput = findDialInput();
+      if (!dialInput) return { ok: false, reason: 'dial input not found' };
 
-    if (result?.result?.ok) return;
-    await delay(500);
-  }
+      dialInput.focus();
+      setNativeValue(dialInput, value);
+      dispatchInputEvents(dialInput);
+
+      const metadata = [customerName, billingNumber, customerNumber].filter(Boolean).join(' | ');
+      if (metadata) {
+        dialInput.setAttribute('data-esg-customer', metadata);
+      }
+
+      // Short delay allows Sharpen listeners to react to the populated value before submit.
+      await wait(220);
+
+      dialInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+      dialInput.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', bubbles: true }));
+      dialInput.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+      if (dialInput.form) {
+        dialInput.form.requestSubmit();
+      }
+
+      return { ok: true };
+    },
+    args: [{
+      value: normalizedDialValue,
+      customerName: String(customer.name || '').trim(),
+      billingNumber: String(customer.billingNumber || '').trim(),
+      customerNumber: String(customer.customerNumber || '').trim()
+    }]
+  });
+
+  if (result?.result?.ok) return;
 
   throw new Error('Could not find the Sharpen dial field. Keep Sharpen logged in and on the dashboard, then try Dial again.');
 }
@@ -231,6 +239,7 @@ async function finish(tabId, result) {
   chrome.runtime.sendMessage({ type: 'LOOKUP_FINISHED', ...result }).catch(() => {});
 }
 
+// by Mo and Avery
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const tabId = sender.tab?.id || message.tabId;
   if (message.type === 'START_LOOKUP') {

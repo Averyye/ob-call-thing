@@ -6,6 +6,7 @@ const button = document.querySelector('#lookup-button');
 const dialButton = document.querySelector('#dial-button');
 const status = document.querySelector('#status');
 const results = document.querySelector('#results');
+// by Mo and Avery
 
 const assignmentTargetInput = document.querySelector('#assignment-target');
 const pullBillingNumberButton = document.querySelector('#pull-billing-number');
@@ -38,6 +39,8 @@ function setStatus(message, type = '') {
   status.textContent = message;
   status.className = `status ${type}`;
 }
+
+/* by Mo and Avery */
 
 function persistDisplayMode(mode) {
   chrome.storage.session.set({ [LAST_VIEW_MODE_KEY]: mode }).catch(() => {});

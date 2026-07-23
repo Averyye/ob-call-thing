@@ -37,6 +37,7 @@ body.renewal-state-red {
   gap: 12px;
   align-items: start;
 }
+/* by Mo and Avery */
 
 .controls-panel,
 .results-panel {
@@ -205,6 +206,7 @@ body.renewal-state-red .status {
   border-bottom: 1px solid #e8edf0;
   font-weight: 700;
 }
+/* by Mo and Avery */
 
 .unknown-list {
   margin: 0;

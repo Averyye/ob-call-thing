@@ -3,7 +3,7 @@ if (!globalThis.__esgLookupContentLoaded) {
 (() => {
   const PORTAL_ORIGIN = 'https://affordable-ep.esgglobal.net';
   const SEARCH_PATH = '/enterpriseportal/home/customers/customerSearch';
-  const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+  const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim(); // by Mo and Avery
   const lower = (value) => normalize(value).toLowerCase();
   const digits = (value) => normalize(value).replace(/\D/g, '');
   const customerNumberWithPadding = (value) => digits(value).padStart(8, '0');
@@ -58,6 +58,8 @@ if (!globalThis.__esgLookupContentLoaded) {
     return tabs.find((tab) => lower(text(tab)) === expected)
       || tabs.find((tab) => lower(text(tab)).includes(expected));
   }
+
+  // by Mo and Avery
 
   function clickByText(value) {
     const target = elementsWithText(value)
@@ -250,6 +252,7 @@ if (!globalThis.__esgLookupContentLoaded) {
     post('CONTRACTS_READY', { rows });
   }
 
+  // by Mo and Avery
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type !== 'RUN_STEP') return;
     Promise.resolve().then(async () => {

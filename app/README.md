@@ -1,5 +1,7 @@
 # ESG Customer Account Lookup
 
+<!-- by Mo and Avery -->
+
 A local Chrome/Edge Manifest V3 extension for the signed-in ESG Enterprise Portal. Enter a billing number and the extension navigates the active portal tab to collect:
 
 - Customer name and service number
