@@ -4,6 +4,7 @@ const SHARPEN_DASHBOARD_URL = 'https://app.iz1.sharpen.cx/fathomQ/dashboard/';
 const SHARPEN_ORIGIN = 'https://app.iz1.sharpen.cx/';
 const SEARCH_BOOTSTRAP_DELAY_MS = 300;
 const DEFAULT_BOOTSTRAP_DELAY_MS = 40; // by Mo and Avery
+const MAX_BOOTSTRAP_RETRIES = 8;
 let nextLookupId = 1;
 
 function normalizeDialNumber(value) {
@@ -178,8 +179,23 @@ function scheduleBootstrap(tabId, delayMs, expectedLookupId = '') {
     if (latest.inFlightStep === latest.step) return;
 
     bootstrapLookupStep(tabId, lookupId)
-      .catch((error) => finish(tabId, { ok: false, error: `Could not continue lookup after navigation: ${error.message}` }, lookupId));
+      .catch((error) => {
+        if (isTransientFrameError(error) && latest.bootstrapRetryCount < MAX_BOOTSTRAP_RETRIES) {
+          latest.bootstrapRetryCount += 1;
+          scheduleBootstrap(tabId, SEARCH_BOOTSTRAP_DELAY_MS, lookupId);
+          return;
+        }
+        finish(tabId, { ok: false, error: `Could not continue lookup after navigation: ${error.message}` }, lookupId);
+      });
   }, Math.max(0, delayMs));
+}
+
+function isTransientFrameError(error) {
+  const message = String(error?.message || error || '').toLowerCase();
+  return message.includes('frame with id')
+    || message.includes('frame was removed')
+    || message.includes('cannot access contents of the page')
+    || message.includes('a listener indicated an asynchronous response by returning true');
 }
 
 function transitionLookupStep(tabId, lookupId, nextStep, { delayMs = DEFAULT_BOOTSTRAP_DELAY_MS, navigateUrl = '' } = {}) {
@@ -187,6 +203,7 @@ function transitionLookupStep(tabId, lookupId, nextStep, { delayMs = DEFAULT_BOO
   if (!state || state.lookupId !== lookupId) return;
 
   state.step = nextStep;
+  state.bootstrapRetryCount = 0;
 
   if (navigateUrl) {
     chrome.tabs.update(tabId, { url: navigateUrl })
@@ -258,6 +275,30 @@ function threeMonthsFromToday() {
   return threshold;
 }
 
+function parseSummaryGroupCounts(summaryText) {
+  const text = String(summaryText || '');
+  const countFrom = (label) => {
+    const match = text.match(new RegExp(`${label}\\s+(\\d+)`, 'i'));
+    return match ? Number(match[1]) : 0;
+  };
+
+  return {
+    billGroups: countFrom('bill groups'),
+    active: countFrom('active'),
+    inactive: countFrom('inactive'),
+    closed: countFrom('closed')
+  };
+}
+
+function buildManualReviewAlert(data) {
+  const accountStatus = String(data?.accountStatus || '').toLowerCase();
+  const counts = parseSummaryGroupCounts(data?.customerSummaryGroups);
+  const isCurrentClosed = accountStatus.includes('closed');
+  if (!isCurrentClosed) return '';
+  if (counts.active <= 0) return '';
+  return 'Current account shows Closed while another Active account exists. Manually check the portal page.';
+}
+
 async function getCustomerNameFromPage(tabId) {
   try {
     const [result] = await chrome.scripting.executeScript({
@@ -308,6 +349,7 @@ async function sendStep(tabId, attempt = 0, expectedLookupId = '') {
   const lookupId = state.lookupId;
 
   try {
+    state.bootstrapRetryCount = 0;
     const response = await chrome.tabs.sendMessage(tabId, {
       type: 'RUN_STEP',
       step: state.step,
@@ -366,6 +408,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       billingNumber,
       data: {},
       inFlightStep: null,
+      bootstrapRetryCount: 0,
       bootstrapTimer: null
     });
 
@@ -457,18 +500,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const latestState = lookups.get(tabId);
       if (!latestState || latestState.lookupId !== lookupId) return;
 
+      const mergedData = {
+        ...latestState.data,
+        customerName: finalCustomerName || latestState.data.customerName || '',
+        billingNumber: latestState.billingNumber,
+        accountStatus: latestState.data.accountStatus || '',
+        currentContractEnd: current?.end || '',
+        renewalStart: renewal?.start || '',
+        renewalEnd: renewal?.end || '',
+        renewalStatus
+      };
+
+      mergedData.manualReviewAlert = buildManualReviewAlert(mergedData);
+
       finish(tabId, {
         ok: true,
-        data: {
-          ...latestState.data,
-          customerName: finalCustomerName || latestState.data.customerName || '',
-          billingNumber: latestState.billingNumber,
-          accountStatus: latestState.data.accountStatus || '',
-          currentContractEnd: current?.end || '',
-          renewalStart: renewal?.start || '',
-          renewalEnd: renewal?.end || '',
-          renewalStatus
-        }
+        data: mergedData
       }, lookupId);
     });
   }

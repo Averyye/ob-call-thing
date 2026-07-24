@@ -68,7 +68,7 @@ function setSessionSetupOpen(isOpen) {
 
 const fields = [
   ['Customer', 'customerName'],
-  ['Search number', 'customerNumber'],
+  ['Customer summary groups', 'customerSummaryGroups'],
   ['Phone', 'phone'],
   ['Billing number', 'billingNumber'],
   ['Status', 'accountStatus'],
@@ -130,15 +130,55 @@ function render(data) {
     if (key === 'accountStatus') {
       row.classList.add('result-row-status', `status-tone-${statusTone(data[key])}`);
     }
+    if (key === 'customerSummaryGroups') {
+      row.classList.add('result-row-summary');
+    }
     const labelElement = document.createElement('span');
     labelElement.className = 'result-label';
     labelElement.textContent = label;
-    const valueElement = document.createElement('span');
-    valueElement.className = `result-value${data[key] ? '' : ' muted'}`;
-    valueElement.textContent = data[key] || 'Not found';
+
+    const value = data[key];
+    const valueElement = document.createElement(key === 'customerSummaryGroups' ? 'div' : 'span');
+    valueElement.className = `result-value${value ? '' : ' muted'}`;
+
+    if (key === 'customerSummaryGroups' && value) {
+      valueElement.classList.add('summary-groups-value');
+      const segments = String(value)
+        .split('|')
+        .map((segment) => segment.trim())
+        .filter(Boolean);
+
+      if (segments.length) {
+        for (const segment of segments) {
+          const pill = document.createElement('span');
+          pill.className = 'summary-pill';
+          pill.textContent = segment;
+          valueElement.append(pill);
+        }
+      } else {
+        valueElement.textContent = String(value);
+      }
+    } else {
+      valueElement.textContent = value || 'Not found';
+    }
+
     row.append(labelElement, valueElement);
     results.append(row);
   }
+
+  if (data.manualReviewAlert) {
+    const row = document.createElement('div');
+    row.className = 'result-row result-row-alert result-row-enter';
+    const labelElement = document.createElement('span');
+    labelElement.className = 'result-label';
+    labelElement.textContent = 'Manual check';
+    const valueElement = document.createElement('span');
+    valueElement.className = 'result-value';
+    valueElement.textContent = String(data.manualReviewAlert);
+    row.append(labelElement, valueElement);
+    results.append(row);
+  }
+
   results.hidden = false;
 }
 

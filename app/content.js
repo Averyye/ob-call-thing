@@ -111,6 +111,42 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
     return '';
   }
 
+  function extractCustomerSummaryGroupCounts() {
+    const labels = ['bill groups', 'active', 'inactive', 'closed'];
+    const counts = {
+      'bill groups': '',
+      active: '',
+      inactive: '',
+      closed: ''
+    };
+
+    const elements = [...document.querySelectorAll('span,a,div,button')]
+      .filter(visible)
+      .map((element) => text(element))
+      .filter(Boolean);
+
+    for (const label of labels) {
+      const pattern = new RegExp(`^${escapeRegExp(label)}\\s*(\\d+)$`, 'i');
+      const matchText = elements.find((value) => pattern.test(normalize(value)));
+      if (!matchText) continue;
+      const match = normalize(matchText).match(pattern);
+      if (match) counts[label] = match[1];
+    }
+
+    const hasAny = Object.values(counts).some(Boolean);
+    if (!hasAny) return '';
+
+    return `Bill Groups ${counts['bill groups'] || '?'} | Active ${counts.active || '?'} | Inactive ${counts.inactive || '?'} | Closed ${counts.closed || '?'}`;
+  }
+
+  function hasCompleteSummaryGroupCounts(value) {
+    const textValue = String(value || '');
+    return /bill groups\s+\d+/i.test(textValue)
+      && /active\s+\d+/i.test(textValue)
+      && /inactive\s+\d+/i.test(textValue)
+      && /closed\s+\d+/i.test(textValue);
+  }
+
   function escapeRegExp(value) {
     return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
@@ -379,6 +415,19 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
     const searchUrl = location.href;
     resultLink.click();
     await waitFor(() => location.href !== searchUrl || lower(document.body.innerText).includes('customer summary'));
+
+    let customerSummaryGroups = extractCustomerSummaryGroupCounts();
+    if (!hasCompleteSummaryGroupCounts(customerSummaryGroups)) {
+      try {
+        customerSummaryGroups = await waitFor(() => {
+          const value = extractCustomerSummaryGroupCounts();
+          return hasCompleteSummaryGroupCounts(value) ? value : null;
+        }, 2500);
+      } catch {
+        customerSummaryGroups = extractCustomerSummaryGroupCounts();
+      }
+    }
+
     await waitFor(() => findLink('Account'));
     const accountHref = findLink('Account')?.href;
     if (!accountHref) throw new Error('Could not find the Account link on the customer summary.');
@@ -386,6 +435,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
     post('SUMMARY_READY', {
       customerName: customerNameFromResults || '',
       customerNumber,
+      customerSummaryGroups,
       phone: findPhoneValue(),
       accountStatus: findAccountStatus() || findValue('Status') || '',
       accountHref
