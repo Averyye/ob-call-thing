@@ -12,6 +12,23 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   const text = (element) => normalize(element?.textContent); //by Mo.A and Avery. H
   const normalizedLabel = (value) => lower(value).replace(/\s*:\s*$/, '');
   let activeLookupId = '';
+  const ACCOUNT_FIELD_LABELS = new Set([
+    'customer name',
+    'billing number',
+    'email',
+    'phone',
+    'service number',
+    'service address',
+    'status',
+    'account',
+    'territory',
+    'flow dates',
+    'bill method',
+    'revenue class',
+    'pricing plan',
+    'commodity price',
+    'service contract'
+  ]);
 
   function elementsWithText(value) {
     const expected = lower(value);
@@ -94,28 +111,88 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
     return '';
   }
 
-  function findValue(labelText) {
+  function escapeRegExp(value) {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function sanitizedFieldValue(value) {
+    const cleaned = normalize(value);
+    if (!cleaned) return '';
+
+    // Remove inline label prefixes from accidentally merged values (e.g., "PHONE: ... STATUS: ...").
+    return cleaned
+      .replace(/\b(customer name|billing number|email|phone|service number|status|service address|account|territory|flow dates|bill method|revenue class|pricing plan|commodity price|service contract)\s*:/ig, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  }
+
+  function findValue(labelText, { allowLineFallback = true } = {}) {
     const expected = normalizedLabel(labelText);
-    const labels = [...document.querySelectorAll('body *')]
+    const labelCandidates = [...document.querySelectorAll('label,th,td,span,div,strong,b')]
       .filter((element) => visible(element) && normalizedLabel(text(element)) === expected);
-    for (const label of labels) {
+
+    const isLikelyLabelElement = (element) => ACCOUNT_FIELD_LABELS.has(normalizedLabel(text(element)));
+
+    for (const label of labelCandidates) {
+      if (label?.htmlFor) {
+        const input = document.getElementById(label.htmlFor);
+        const inputValue = sanitizedFieldValue(input?.value || '');
+        if (inputValue) return inputValue;
+      }
+
+      const nextElementValue = sanitizedFieldValue(text(label.nextElementSibling));
+      if (nextElementValue) return nextElementValue;
+
       const parent = label.parentElement;
       if (!parent) continue;
-      const nextElement = label.nextElementSibling;
-      if (nextElement && text(nextElement)) return text(nextElement);
-      const sibling = [...parent.children].find((element) => element !== label && text(element));
-      if (sibling) return text(sibling);
-      const nestedValue = [...parent.querySelectorAll('*')]
-        .filter((element) => visible(element) && element !== label && text(element))
-        .filter((element) => ![...element.children].some((child) => text(child)))
-        .sort((first, second) => first.children.length - second.children.length)[0];
-      if (nestedValue) return text(nestedValue);
-      const parts = text(parent).split(/\s{2,}|:/).map(normalize).filter(Boolean);
-      if (parts.length > 1) return parts[parts.length - 1];
+
+      const siblingValues = [...parent.children]
+        .filter((element) => element !== label && visible(element) && !isLikelyLabelElement(element))
+        .map((element) => sanitizedFieldValue(text(element)))
+        .filter(Boolean)
+        .sort((first, second) => first.length - second.length);
+
+      if (siblingValues.length) return siblingValues[0];
     }
+
+    if (!allowLineFallback) return '';
+
     const lines = (document.body.innerText || '').split(/\r?\n/).map(normalize).filter(Boolean);
+    const inlineRegex = new RegExp(`^${escapeRegExp(labelText)}\\s*[:：]\\s*(.+)$`, 'i');
+    for (const line of lines) {
+      const match = line.match(inlineRegex);
+      if (match) {
+        const candidate = sanitizedFieldValue(match[1]);
+        if (candidate) return candidate;
+      }
+    }
+
     const labelIndex = lines.findIndex((line) => normalizedLabel(line) === expected);
-    if (labelIndex >= 0) return lines[labelIndex + 1] || '';
+    if (labelIndex >= 0) return sanitizedFieldValue(lines[labelIndex + 1] || '');
+    return '';
+  }
+
+  function findPhoneValue() {
+    const phoneLike = /\+?1?[-.\s(]*\d{3}[-.\s)]*\d{3}[-.\s]*\d{4}(?:\s*(?:x|ext\.?|extension)\s*\d+)?/i;
+    const pickPhone = (value) => {
+      const candidate = String(value || '');
+      const match = candidate.match(phoneLike);
+      return match ? normalize(match[0]) : '';
+    };
+
+    const fromServiceNumber = pickPhone(findValue('Service Number'));
+    if (fromServiceNumber) return fromServiceNumber;
+
+    const fromPhoneLabel = pickPhone(findValue('Phone'));
+    if (fromPhoneLabel) return fromPhoneLabel;
+
+    const lines = (document.body.innerText || '').split(/\r?\n/).map(normalize).filter(Boolean);
+    for (const line of lines) {
+      if (!/^phone\s*[:：]/i.test(line)) continue;
+      const fromLine = pickPhone(line);
+      if (fromLine) return fromLine;
+    }
+
     return '';
   }
 
@@ -146,7 +223,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
       return cleaned.sort((first, second) => score(second) - score(first))[0];
     };
 
-    const fromLabel = sanitizeStatusValue(findValue('Status'));
+    const fromLabel = sanitizeStatusValue(findValue('Status', { allowLineFallback: false }));
     const bodyText = String(document.body.innerText || '');
     const lines = bodyText.split(/\r?\n/).map(normalize).filter(Boolean);
 
@@ -204,8 +281,17 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   }
 
   function contractRows() {
+    const hasContractShape = (headers) => {
+      const hasDates = headers.includes('start date') && headers.includes('end date');
+      const hasContractIdentity = headers.includes('contract id')
+        || headers.includes('pricing plan')
+        || headers.includes('fixed commodity rate');
+      return hasDates && hasContractIdentity;
+    };
+
     for (const table of document.querySelectorAll('table')) {
       const headers = [...table.querySelectorAll('th,[role="columnheader"]')].map((header) => lower(text(header)));
+      if (!hasContractShape(headers)) continue;
       const startIndex = headers.findIndex((header) => header === 'start date');
       const endIndex = headers.findIndex((header) => header === 'end date');
       if (startIndex < 0 || endIndex < 0) continue;
@@ -216,6 +302,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
       if (rows.length) return rows;
     }
     const headers = [...document.querySelectorAll('th,[role="columnheader"]')].map((header) => lower(text(header)));
+    if (!hasContractShape(headers)) return [];
     const startIndex = headers.findIndex((header) => header === 'start date');
     const endIndex = headers.findIndex((header) => header === 'end date');
     if (startIndex < 0 || endIndex < 0) return [];
@@ -299,7 +386,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
     post('SUMMARY_READY', {
       customerName: customerNameFromResults || '',
       customerNumber,
-      phone: findValue('Service Number') || findValue('Phone'),
+      phone: findPhoneValue(),
       accountStatus: findAccountStatus() || findValue('Status') || '',
       accountHref
     });

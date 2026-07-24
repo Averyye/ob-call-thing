@@ -210,6 +210,43 @@ function searchNumberFromBillingNumber(billingNumber) {
 function parsePortalDate(value) {
   const normalized = String(value || '').replace(/\s+/g, ' ').trim();
   if (!normalized || normalized === '—' || normalized === '-') return null;
+
+  const monthNames = {
+    jan: 0, january: 0,
+    feb: 1, february: 1,
+    mar: 2, march: 2,
+    apr: 3, april: 3,
+    may: 4,
+    jun: 5, june: 5,
+    jul: 6, july: 6,
+    aug: 7, august: 7,
+    sep: 8, sept: 8, september: 8,
+    oct: 9, october: 9,
+    nov: 10, november: 10,
+    dec: 11, december: 11
+  };
+
+  const monthNameMatch = normalized.match(/^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})$/);
+  if (monthNameMatch) {
+    const monthIndex = monthNames[monthNameMatch[1].toLowerCase()];
+    if (Number.isInteger(monthIndex)) {
+      const day = Number(monthNameMatch[2]);
+      const year = Number(monthNameMatch[3]);
+      const parsed = new Date(year, monthIndex, day);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+  }
+
+  const numericMatch = normalized.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (numericMatch) {
+    const month = Number(numericMatch[1]);
+    const day = Number(numericMatch[2]);
+    const yearPart = Number(numericMatch[3]);
+    const year = yearPart < 100 ? 2000 + yearPart : yearPart;
+    const parsed = new Date(year, month - 1, day);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+
   const timestamp = Date.parse(normalized);
   if (Number.isNaN(timestamp)) return null;
   return new Date(timestamp); // by Mo.A and Avery. H
@@ -389,12 +426,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === 'CONTRACTS_READY') {
     const rows = Array.isArray(message.data?.rows) ? message.data.rows : [];
-    const [current, renewal] = rows;
-    const parsedEndDates = rows
-      .map((row) => parsePortalDate(row?.end))
-      .filter(Boolean)
-      .sort((first, second) => first - second);
-    const latestEndDate = parsedEndDates[parsedEndDates.length - 1] || null;
+    const rowsWithDates = rows.map((row) => ({
+      row,
+      endDate: parsePortalDate(row?.end),
+      startDate: parsePortalDate(row?.start)
+    }));
+
+    const sortedRows = [...rowsWithDates].sort((first, second) => {
+      const secondEnd = second.endDate ? second.endDate.getTime() : -Infinity;
+      const firstEnd = first.endDate ? first.endDate.getTime() : -Infinity;
+      if (secondEnd !== firstEnd) return secondEnd - firstEnd;
+
+      const secondStart = second.startDate ? second.startDate.getTime() : -Infinity;
+      const firstStart = first.startDate ? first.startDate.getTime() : -Infinity;
+      return secondStart - firstStart;
+    }).map((entry) => entry.row);
+
+    const [current, renewal] = sortedRows;
+    const latestEndDate = parsePortalDate(current?.end) || null;
     const threshold = threeMonthsFromToday();
 
     let renewalStatus = 'No renewal found';
