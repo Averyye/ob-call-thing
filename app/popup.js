@@ -22,7 +22,6 @@ const pullPreviousBillingNumberButton = document.querySelector('#pull-previous-b
 const pullNextBillingNumberButton = document.querySelector('#pull-next-billing-number');
 const pastedRowsInput = document.querySelector('#pasted-rows');
 const runRenewalAutocheckButton = document.querySelector('#run-renewal-autocheck');
-const pickLocalDispositionFileButton = document.querySelector('#pick-local-disposition-file');
 const renewedResults = document.querySelector('#renewed-results');
 const renewalCurrent = document.querySelector('#renewal-current');
 const renewedSummary = document.querySelector('#renewed-summary');
@@ -31,7 +30,9 @@ const unknownSummary = document.querySelector('#unknown-summary');
 const unknownList = document.querySelector('#unknown-list');
 
 let isBatchRunning = false;
-let localDispositionFileHandle = null;
+let pastedRowsPersistTimer = null;
+let nextLookupRequestId = 1;
+let activeSingleLookupRequestId = '';
 const LAST_BATCH_KEY = 'lastRenewalRadarResult';
 const LAST_VIEW_MODE_KEY = 'lastDisplayMode';
 const DISPOSITION_LOG_KEY = 'dispositionLogs';
@@ -184,6 +185,7 @@ function createUnknownListItem(entry) {
 }
 
 function renderRenewalRadarProgress(processedCount, totalCount, renewedCount, notRenewedCount, unknownCount, retryRecoveredCount = 0) {
+  setResultsOpen(true);
   renewedSummary.textContent = `Processed ${processedCount}/${totalCount}. ${renewedCount} Renewed/Active, ${notRenewedCount} No renewal, ${unknownCount} Unknown. Retry recovered: ${retryRecoveredCount}.`;
   renewedResults.hidden = false;
 }
@@ -221,7 +223,14 @@ function setActionButtonsDisabled(disabled) {
   if (openSessionSetupButton) openSessionSetupButton.disabled = disabled;
   if (startSessionButton) startSessionButton.disabled = disabled;
   if (closeSessionSetupButton) closeSessionSetupButton.disabled = disabled;
-  if (pickLocalDispositionFileButton) pickLocalDispositionFileButton.disabled = disabled;
+}
+
+function toRenewedEntry(data, billingNumber) {
+  return {
+    billingNumber,
+    customerName: String(data.customerName || '').trim(),
+    accountStatus: String(data.accountStatus || '').trim()
+  };
 }
 
 function hasSessionRows() {
@@ -261,77 +270,6 @@ function normalizeDisposition(value) {
 
 function dispositionFileSlug(value) {
   return normalizeDisposition(value).replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'disposition';
-}
-
-async function ensureLocalFileWritePermission(fileHandle) {
-  if (!fileHandle) return false;
-  if (typeof fileHandle.queryPermission === 'function') {
-    const current = await fileHandle.queryPermission({ mode: 'readwrite' });
-    if (current === 'granted') return true;
-  }
-  if (typeof fileHandle.requestPermission === 'function') {
-    const requested = await fileHandle.requestPermission({ mode: 'readwrite' });
-    return requested === 'granted';
-  }
-  return true;
-}
-
-async function pickLocalDispositionFile() {
-  if (typeof window.showOpenFilePicker !== 'function') {
-    throw new Error('Local file picker is not available in this browser context.');
-  }
-
-  const [fileHandle] = await window.showOpenFilePicker({
-    multiple: false,
-    types: [{
-      description: 'CSV files',
-      accept: { 'text/csv': ['.csv'] }
-    }]
-  });
-
-  const granted = await ensureLocalFileWritePermission(fileHandle);
-  if (!granted) {
-    throw new Error('Write permission was not granted for the selected file.');
-  }
-
-  localDispositionFileHandle = fileHandle;
-  return fileHandle;
-}
-
-async function appendDispositionToLocalFile(record) {
-  if (!localDispositionFileHandle) {
-    return false;
-  }
-
-  const granted = await ensureLocalFileWritePermission(localDispositionFileHandle);
-  if (!granted) {
-    throw new Error('Write permission is required to update the selected local file.');
-  }
-
-  const file = await localDispositionFileHandle.getFile();
-  const existing = await file.text();
-  const header = 'billingNumber,customerName,contractExpirationDate,dialedNumber,disposition,savedAt';
-  const line = [
-    record.billingNumber,
-    record.customerName,
-    record.contractExpirationDate,
-    record.dialedNumber,
-    record.disposition,
-    record.savedAt
-  ].map(escapeCsvValue).join(',');
-
-  let nextContents = existing;
-  if (!nextContents.trim()) {
-    nextContents = `${header}\r\n${line}\r\n`;
-  } else {
-    if (!nextContents.endsWith('\n')) nextContents += '\r\n';
-    nextContents += `${line}\r\n`;
-  }
-
-  const writable = await localDispositionFileHandle.createWritable();
-  await writable.write(nextContents);
-  await writable.close();
-  return true;
 }
 
 function escapeCsvValue(value) {
@@ -413,12 +351,7 @@ async function saveSelectedDisposition() {
 
   const records = await saveDispositionRecord(record);
   await downloadDispositionCsv(disposition, records);
-  const wroteToLocalFile = await appendDispositionToLocalFile(record);
-  if (wroteToLocalFile) {
-    setStatus(`Saved ${disposition} and appended it to your selected local file.`, 'success');
-  } else {
-    setStatus(`Saved ${disposition} and updated its CSV download file.`, 'success');
-  }
+  setStatus(`Saved ${disposition} and updated its CSV download file.`, 'success');
 }
 
 async function dialLatestCustomer() {
@@ -564,7 +497,13 @@ async function readCopiedRowsText() {
   throw new Error('Paste copied rows into the text box, then try again.');
 }
 
-function waitForLookupFinished(timeoutMs = 90000) {
+function createLookupRequestId(prefix = 'lookup') {
+  const id = nextLookupRequestId;
+  nextLookupRequestId += 1;
+  return `${prefix}-${Date.now()}-${id}`;
+}
+
+function waitForLookupFinished(timeoutMs = 90000, expectedRequestId = '') {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       chrome.runtime.onMessage.removeListener(listener);
@@ -573,6 +512,7 @@ function waitForLookupFinished(timeoutMs = 90000) {
 
     const listener = (message) => {
       if (message.type !== 'LOOKUP_FINISHED') return;
+      if (expectedRequestId && message.requestId !== expectedRequestId) return;
       clearTimeout(timeout);
       chrome.runtime.onMessage.removeListener(listener);
       if (message.ok) {
@@ -599,15 +539,20 @@ async function runLookupForBillingNumber(tabId, billingNumber) {
   let lastError = null;
 
   for (let attempt = 0; attempt < attempts.length; attempt += 1) {
+    const requestId = createLookupRequestId('batch');
     try {
-      const pendingResult = waitForLookupFinished(attempts[attempt]);
+      const pendingResult = waitForLookupFinished(attempts[attempt], requestId);
       const response = await chrome.runtime.sendMessage({
         type: 'START_LOOKUP',
         tabId,
-        billingNumber
+        billingNumber,
+        requestId
       });
       if (!response?.ok) {
         throw new Error(response?.error || `Could not start lookup for ${billingNumber}.`);
+      }
+      if (response.requestId && response.requestId !== requestId) {
+        throw new Error(`Lookup request mismatch for ${billingNumber}.`);
       }
       const data = await pendingResult;
       return {
@@ -725,14 +670,23 @@ form.addEventListener('submit', async (event) => {
     if (!portalTab?.id) {
       throw new Error('Open a signed-in ESG portal tab in this window before starting a lookup.');
     }
+
+    const requestId = createLookupRequestId('single');
+    activeSingleLookupRequestId = requestId;
+
     const response = await chrome.runtime.sendMessage({
       type: 'START_LOOKUP',
       tabId: portalTab.id,
-      billingNumber
+      billingNumber,
+      requestId
     });
     if (!response?.ok) throw new Error(response?.error || 'The lookup did not complete.');
+    if (response.requestId && response.requestId !== requestId) {
+      throw new Error('Lookup request mismatch. Please try again.');
+    }
     setStatus('Lookup started. Keep the portal tab open while it runs.');
   } catch (error) {
+    activeSingleLookupRequestId = '';
     setStatus(error.message || 'Lookup failed.', 'error');
   } finally {
     setActionButtonsDisabled(false);
@@ -803,26 +757,11 @@ saveDispositionButton.addEventListener('click', async () => {
   }
 });
 
-if (pickLocalDispositionFileButton) {
-  pickLocalDispositionFileButton.addEventListener('click', async () => {
-    if (isBatchRunning) return;
-    setActionButtonsDisabled(true);
-    setStatus('Opening local file picker...');
-    try {
-      const handle = await pickLocalDispositionFile();
-      setStatus(`Local file selected: ${handle.name}`, 'success');
-    } catch (error) {
-      setStatus(error.message || 'Could not select a local file.', 'error');
-    } finally {
-      setActionButtonsDisabled(false);
-    }
-  });
-}
-
 runRenewalAutocheckButton.addEventListener('click', async () => {
   if (isBatchRunning) return;
   isBatchRunning = true;
   setActionButtonsDisabled(true);
+  setSessionSetupOpen(false);
   setResultsOpen(false);
   results.hidden = true;
   hideRenewedBatchResults();
@@ -865,7 +804,8 @@ runRenewalAutocheckButton.addEventListener('click', async () => {
 
     for (let index = 0; index < billingNumbers.length; index += 1) {
       const billingNumber = billingNumbers[index];
-      setRenewalCurrent(`Currently checking: ${billingNumber} (${index + 1}/${billingNumbers.length})`);
+      const currentText = `Currently checking: ${billingNumber} (${index + 1}/${billingNumbers.length})`;
+      setRenewalCurrent(currentText);
       setStatus(`Renewal Radar running ${index + 1}/${billingNumbers.length}: ${billingNumber}`);
       try {
         const lookupResult = await runLookupForBillingNumber(portalTab.id, billingNumber);
@@ -873,11 +813,7 @@ runRenewalAutocheckButton.addEventListener('click', async () => {
         const data = lookupResult.data;
         const renewalStatus = String(data.renewalStatus || '').toLowerCase();
         if (renewalStatus.includes('renewed/active') || renewalStatus.includes('renewed')) {
-          const renewedEntry = {
-            billingNumber,
-            customerName: String(data.customerName || '').trim(),
-            accountStatus: String(data.accountStatus || '').trim()
-          };
+          const renewedEntry = toRenewedEntry(data, billingNumber);
           renewed.push(renewedEntry);
           renewedList.append(createRenewedListItem(renewedEntry));
         } else if (renewalStatus.includes('no renewal')) {
@@ -915,7 +851,8 @@ runRenewalAutocheckButton.addEventListener('click', async () => {
       );
     }
 
-    setRenewalCurrent(`Finished checking ${billingNumbers.length} account${billingNumbers.length === 1 ? '' : 's'}.`);
+    const finishedText = `Finished checking ${billingNumbers.length} account${billingNumbers.length === 1 ? '' : 's'}.`;
+    setRenewalCurrent(finishedText);
 
     const totalCount = billingNumbers.length + inputUnknownEntries.length;
     renderRenewedBatchResults(renewed, notRenewedCount, unknownEntries, totalCount, retryRecoveredCount);
@@ -930,7 +867,13 @@ runRenewalAutocheckButton.addEventListener('click', async () => {
 });
 
 pastedRowsInput.addEventListener('input', () => {
-  chrome.storage.local.set({ excelPastedRows: pastedRowsInput.value });
+  if (pastedRowsPersistTimer) {
+    clearTimeout(pastedRowsPersistTimer);
+  }
+  pastedRowsPersistTimer = setTimeout(() => {
+    pastedRowsPersistTimer = null;
+    chrome.storage.local.set({ excelPastedRows: pastedRowsInput.value });
+  }, 300);
   setSessionReady(hasSessionRows());
 });
 
@@ -956,10 +899,6 @@ if (startSessionButton) {
 
 if (closeSessionSetupButton) {
   closeSessionSetupButton.addEventListener('click', () => {
-    if (!hasSessionRows()) {
-      setStatus('Paste rows first, then start session.', 'error');
-      return;
-    }
     setSessionSetupOpen(false);
   });
 }
@@ -1014,6 +953,9 @@ chrome.storage.session.get(['lastResult', LAST_BATCH_KEY, LAST_VIEW_MODE_KEY]).t
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type !== 'LOOKUP_FINISHED') return;
   if (isBatchRunning) return;
+  if (activeSingleLookupRequestId && message.requestId !== activeSingleLookupRequestId) return;
+
+  activeSingleLookupRequestId = '';
   if (message.ok) {
     persistDisplayMode('single');
     hideRenewedBatchResults();

@@ -37,16 +37,6 @@ The available dispositions are:
 
 This uses browser downloads to keep the disposition buckets in separate files.
 
-## Optional local file sync
-
-You can also append each saved disposition into a local CSV file on your PC.
-
-1. In the popup, click **Pick local CSV file** in the **Disposition Local File Sync** section.
-2. Choose an existing `.csv` file and allow write permission.
-3. Click **Save** in the disposition section after each dial.
-
-Each save still updates the disposition CSV download file, and if a local file is selected it also appends a row there.
-
 ## Install locally
 
 1. Open Chrome or Edge and navigate to the ESG customer search page.

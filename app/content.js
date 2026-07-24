@@ -1,4 +1,4 @@
-const ESG_LOOKUP_CONTENT_VERSION = '2026-07-23-status-v2';
+const ESG_LOOKUP_CONTENT_VERSION = '2026-07-24-requestid-v1';
 if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   globalThis.__esgLookupContentVersion = ESG_LOOKUP_CONTENT_VERSION;
 (() => {
@@ -11,6 +11,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   const visible = (element) => Boolean(element && element.getClientRects().length);
   const text = (element) => normalize(element?.textContent); //by Mo.A and Avery. H
   const normalizedLabel = (value) => lower(value).replace(/\s*:\s*$/, '');
+  let activeLookupId = '';
 
   function elementsWithText(value) {
     const expected = lower(value);
@@ -238,7 +239,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   }
 
   function post(action, data = {}) {
-    chrome.runtime.sendMessage({ type: 'LOOKUP_STEP', action, data });
+    chrome.runtime.sendMessage({ type: 'LOOKUP_STEP', action, data, lookupId: activeLookupId });
   }
 
   async function ensureOnCustomerSearchPage() {
@@ -341,6 +342,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   // by Mo and Avery
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type !== 'RUN_STEP') return;
+    activeLookupId = String(message.lookupId || '');
     Promise.resolve().then(async () => {
       if (message.step === 'search') await runSearch(message.customerNumber);
       if (message.step === 'summary') await runSummary(message.customerNumber);

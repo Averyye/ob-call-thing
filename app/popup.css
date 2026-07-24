@@ -90,8 +90,7 @@ body.renewal-state-red {
 .controls-panel,
 .results-panel,
 .excel-panel,
-.disposition-panel,
-.workbook-sync-panel {
+.disposition-panel {
   animation: panelRise .45s ease-out both;
 }
 
@@ -241,18 +240,6 @@ body.setup-open #status-inline {
   display: none;
 }
 
-body:not(.session-ready) #lookup-form,
-body:not(.session-ready) #open-session-setup {
-  opacity: .45;
-  pointer-events: none;
-}
-
-body.session-ready #lookup-form,
-body.session-ready #open-session-setup {
-  opacity: 1;
-  pointer-events: auto;
-}
-
 #close-session-setup {
   background: #5f6c79;
 }
@@ -348,27 +335,6 @@ body.session-ready #open-session-setup {
 
 #run-renewal-autocheck:hover {
   background: #1a544b;
-}
-
-.workbook-sync-panel {
-  margin-top: 10px;
-  border-top: 1px dashed var(--line);
-  padding-top: 8px;
-}
-
-.workbook-sync-panel h3 {
-  margin: 0 0 6px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-#pick-local-disposition-file {
-  background: #4f3a7f;
-}
-
-#pick-local-disposition-file:hover {
-  background: #3e2e63;
 }
 
 .results-title {
