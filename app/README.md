@@ -21,7 +21,7 @@ The popup supports an Excel copy/paste workflow without cloud APIs.
 1. Copy rows from Excel.
 2. Paste them into the popup text area.
 3. Optionally set target value(s) from column A (examples: `7` or `7,8`). Leave blank for top-to-bottom mode.
-4. Use **Previous billing number** and **Next billing number** to step through matches.
+4. Use **Previous billing number** to load the preceding match. **Next billing number** loads the next match, waits 200 ms, and then automatically starts its account search. Dial remains unavailable until that search has displayed its results.
 
 ## Disposition logging
 

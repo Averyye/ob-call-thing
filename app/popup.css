@@ -313,6 +313,14 @@ body.setup-open #status-inline {
   display: inline-block;
 }
 
+.session-position-badge {
+  margin: 6px 0 0;
+  margin-left: 6px;
+  border-color: #a9c9e5;
+  background: #eef5fa;
+  color: var(--blue-dark);
+}
+
 .disposition-panel h2 {
   margin: 0 0 6px;
   color: var(--muted);

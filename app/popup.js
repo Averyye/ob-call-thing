@@ -12,6 +12,7 @@ const sessionSetupPanel = document.querySelector('#session-setup');
 const dispositionSelect = document.querySelector('#disposition-select');
 const saveDispositionButton = document.querySelector('#save-disposition');
 const sessionReadyBadge = document.querySelector('#session-ready-badge');
+const sessionPositionBadge = document.querySelector('#session-position-badge');
 const status = document.querySelector('#status');
 const inlineStatus = document.querySelector('#status-inline');
 const results = document.querySelector('#results');
@@ -30,9 +31,13 @@ const unknownSummary = document.querySelector('#unknown-summary');
 const unknownList = document.querySelector('#unknown-list');
 
 let isBatchRunning = false;
+let isSingleLookupRunning = false;
+let hasDisplayedLookupResult = false;
 let pastedRowsPersistTimer = null;
 let nextLookupRequestId = 1;
 let activeSingleLookupRequestId = '';
+const NEXT_BILLING_AUTO_LOOKUP_DELAY_MS = 200;
+const SESSION_POSITION_KEY = 'sessionRowPosition';
 const LAST_BATCH_KEY = 'lastRenewalRadarResult';
 const LAST_VIEW_MODE_KEY = 'lastDisplayMode';
 const DISPOSITION_LOG_KEY = 'dispositionLogs';
@@ -54,6 +59,26 @@ function setSessionReady(isReady) {
   if (sessionReadyBadge) {
     sessionReadyBadge.hidden = !isReady;
   }
+}
+
+function setSessionPositionBadge(position, total) {
+  if (!sessionPositionBadge) return;
+  if (!position || !total) {
+    sessionPositionBadge.hidden = true;
+    sessionPositionBadge.textContent = '';
+    return;
+  }
+  sessionPositionBadge.textContent = `${position}/${total}`;
+  sessionPositionBadge.hidden = false;
+}
+
+function persistSessionPosition(position, total) {
+  chrome.storage.local.set({ [SESSION_POSITION_KEY]: { position, total } }).catch(() => {});
+}
+
+function clearSessionPosition() {
+  setSessionPositionBadge(null, null);
+  chrome.storage.local.remove(SESSION_POSITION_KEY).catch(() => {});
 }
 
 function setSessionSetupOpen(isOpen) {
@@ -254,7 +279,8 @@ function hideRenewedBatchResults() {
 
 function setActionButtonsDisabled(disabled) {
   button.disabled = disabled;
-  dialButton.disabled = disabled;
+  // A customer can only be dialed after the currently requested lookup has rendered.
+  dialButton.disabled = disabled || isSingleLookupRunning || !hasDisplayedLookupResult;
   dispositionSelect.disabled = disabled;
   saveDispositionButton.disabled = disabled;
   pullPreviousBillingNumberButton.disabled = disabled;
@@ -294,6 +320,7 @@ async function beginSessionFromSetup() {
   await persistTargetValue();
   setSessionReady(true);
   setSessionSetupOpen(false);
+  clearSessionPosition();
   setStatus('Session ready. Use Previous/Next to load billing numbers.', 'success');
 }
 
@@ -694,10 +721,12 @@ async function pullBillingNumberForTarget(direction = 1) {
 
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
-  if (isBatchRunning) return;
+  if (isBatchRunning || isSingleLookupRunning) return;
   const billingNumber = input.value.trim();
   if (!billingNumber) return;
 
+  isSingleLookupRunning = true;
+  hasDisplayedLookupResult = false;
   setActionButtonsDisabled(true);
   setResultsOpen(false);
   results.hidden = true;
@@ -727,6 +756,7 @@ form.addEventListener('submit', async (event) => {
     setStatus('Lookup started. Keep the portal tab open while it runs.');
   } catch (error) {
     activeSingleLookupRequestId = '';
+    isSingleLookupRunning = false;
     setStatus(error.message || 'Lookup failed.', 'error');
   } finally {
     setActionButtonsDisabled(false);
@@ -734,41 +764,50 @@ form.addEventListener('submit', async (event) => {
 });
 
 pullPreviousBillingNumberButton.addEventListener('click', async () => {
-  if (isBatchRunning) return;
-  pullPreviousBillingNumberButton.disabled = true;
-  pullNextBillingNumberButton.disabled = true;
+  if (isBatchRunning || isSingleLookupRunning) return;
+  setActionButtonsDisabled(true);
   setStatus('Reading pasted rows...');
   try {
     const picked = await pullBillingNumberForTarget(-1);
     input.value = picked.billingNumber;
+    hasDisplayedLookupResult = false;
+    setSessionPositionBadge(picked.position, picked.total);
+    persistSessionPosition(picked.position, picked.total);
     setStatus(`Loaded previous ${picked.billingNumber} (${picked.position}/${picked.total})`, 'success');
   } catch (error) {
     setStatus(error.message || 'Could not read billing numbers from pasted rows.', 'error');
   } finally {
-    pullPreviousBillingNumberButton.disabled = false;
-    pullNextBillingNumberButton.disabled = false;
+    setActionButtonsDisabled(false);
   }
 });
 
 pullNextBillingNumberButton.addEventListener('click', async () => {
-  if (isBatchRunning) return;
-  pullPreviousBillingNumberButton.disabled = true;
-  pullNextBillingNumberButton.disabled = true;
+  if (isBatchRunning || isSingleLookupRunning) return;
+  setActionButtonsDisabled(true);
   setStatus('Reading pasted rows...');
+  let lookupQueued = false;
   try {
     const picked = await pullBillingNumberForTarget(1);
     input.value = picked.billingNumber;
-    setStatus(`Loaded next ${picked.billingNumber} (${picked.position}/${picked.total})`, 'success');
+    hasDisplayedLookupResult = false;
+    setSessionPositionBadge(picked.position, picked.total);
+    persistSessionPosition(picked.position, picked.total);
+    setStatus(`Loaded next ${picked.billingNumber} (${picked.position}/${picked.total}). Starting search...`, 'success');
+
+    // Briefly yield so the updated billing number is visible before its lookup begins.
+    await new Promise((resolve) => setTimeout(resolve, NEXT_BILLING_AUTO_LOOKUP_DELAY_MS));
+    setStatus(`Searching ${picked.billingNumber}...`);
+    lookupQueued = true;
+    form.requestSubmit();
   } catch (error) {
     setStatus(error.message || 'Could not read billing numbers from pasted rows.', 'error');
   } finally {
-    pullPreviousBillingNumberButton.disabled = false;
-    pullNextBillingNumberButton.disabled = false;
+    if (!lookupQueued) setActionButtonsDisabled(false);
   }
 });
 
 dialButton.addEventListener('click', async () => {
-  if (isBatchRunning) return;
+  if (isBatchRunning || isSingleLookupRunning || !hasDisplayedLookupResult) return;
   setActionButtonsDisabled(true);
   setStatus('Opening Sharpen and filling the dial field...');
   let dialSucceeded = false;
@@ -915,6 +954,7 @@ pastedRowsInput.addEventListener('input', () => {
     chrome.storage.local.set({ excelPastedRows: pastedRowsInput.value });
   }, 300);
   setSessionReady(hasSessionRows());
+  clearSessionPosition();
 });
 
 if (openSessionSetupButton) {
@@ -951,7 +991,7 @@ setSessionReady(false);
 setResultsOpen(false);
 setSessionSetupOpen(true);
 
-chrome.storage.local.get(['excelPastedRows']).then((stored) => {
+chrome.storage.local.get(['excelPastedRows', SESSION_POSITION_KEY]).then((stored) => {
   const restoredRows = String(stored.excelPastedRows || '').trim();
   if (!restoredRows) {
     setSessionSetupOpen(true);
@@ -962,6 +1002,11 @@ chrome.storage.local.get(['excelPastedRows']).then((stored) => {
   pastedRowsInput.value = restoredRows;
   setSessionReady(true);
   setSessionSetupOpen(false);
+
+  const savedPosition = stored[SESSION_POSITION_KEY];
+  if (savedPosition && savedPosition.position && savedPosition.total) {
+    setSessionPositionBadge(savedPosition.position, savedPosition.total);
+  }
 });
 
 chrome.storage.session.get(['lastResult', LAST_BATCH_KEY, LAST_VIEW_MODE_KEY]).then((stored) => {
@@ -985,8 +1030,10 @@ chrome.storage.session.get(['lastResult', LAST_BATCH_KEY, LAST_VIEW_MODE_KEY]).t
   if (lastResult) {
     hideRenewedBatchResults();
     render(lastResult);
+    hasDisplayedLookupResult = true;
     flashRenewalState(lastResult.renewalStatus);
     setStatus('Last lookup complete.', 'success');
+    setActionButtonsDisabled(false);
   }
 });
 
@@ -996,13 +1043,17 @@ chrome.runtime.onMessage.addListener((message) => {
   if (activeSingleLookupRequestId && message.requestId !== activeSingleLookupRequestId) return;
 
   activeSingleLookupRequestId = '';
+  isSingleLookupRunning = false;
   if (message.ok) {
     persistDisplayMode('single');
     hideRenewedBatchResults();
     render(message.data);
+    hasDisplayedLookupResult = true;
     flashRenewalState(message.data?.renewalStatus);
     setStatus('Lookup complete.', 'success');
   } else {
+    hasDisplayedLookupResult = false;
     setStatus(message.error || 'Lookup failed.', 'error');
   }
+  setActionButtonsDisabled(false);
 });

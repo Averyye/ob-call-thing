@@ -36,7 +36,7 @@
           <label for="customer-number">Billing number</label>
           <input id="customer-number" name="billingNumber" inputmode="text" autocomplete="off" placeholder="Enter billing number" required>
           <button id="lookup-button" type="submit">Find account</button>
-          <button id="dial-button" type="button">Dial</button>
+          <button id="dial-button" type="button" disabled>Dial</button>
 
           <div class="row-nav-buttons compact-nav">
             <button id="pull-previous-billing-number" type="button">Previous billing number</button>
@@ -44,6 +44,7 @@
           </div>
           <button id="open-session-setup" type="button">Edit pasted rows</button>
           <p id="session-ready-badge" class="session-ready-badge" hidden>Session ready: pasted rows loaded</p>
+          <p id="session-position-badge" class="session-ready-badge session-position-badge" hidden></p>
         </form>
         <p id="status-inline" class="status" role="status">Ready.</p>
       </section>
