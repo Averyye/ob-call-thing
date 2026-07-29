@@ -23,6 +23,10 @@ The popup supports an Excel copy/paste workflow without cloud APIs.
 3. Optionally set target value(s) from column A (examples: `7` or `7,8`). Leave blank for top-to-bottom mode.
 4. Use **Previous billing number** to load the preceding match. **Next billing number** loads the next match, waits 200 ms, and then automatically starts its account search. Dial remains unavailable until that search has displayed its results.
 
+## Renewal Radar
+
+Renewal Radar runs in the extension background worker, so it continues when the popup is closed or unfocused. It opens a separate inactive portal tab for its automated searches, leaving the tab you are using untouched. Use **Stop** to finish the account currently being checked and stop before the next one; all checked results remain available when the popup is reopened.
+
 ## Disposition logging
 
 After a lookup and dial, pick a disposition in the popup and click **Save disposition**. The extension stores the latest billing number, customer name, contract expiration date, and dialed number locally, then updates a CSV file for that disposition in your downloads folder.

@@ -8,6 +8,11 @@
 </head>
 <body>
   <main class="shell">
+    <section id="lookup-loading-screen" class="lookup-loading-screen" aria-live="polite" aria-label="Account lookup in progress">
+      <span class="loading-orb" aria-hidden="true"></span>
+      <h2>Pulling up the account…</h2>
+      <p>Working on it. This usually takes just a moment.</p>
+    </section>
     <div class="layout">
       <section class="controls-panel" aria-label="Lookup controls">
         <section id="session-setup" class="excel-panel session-setup" aria-label="Session setup" hidden>
@@ -22,7 +27,10 @@
           <button id="start-session" type="button">Start session</button>
           <button id="close-session-setup" type="button">Back to compact view</button>
 
-          <button id="run-renewal-autocheck" type="button">Renewal Radar: check all copied billing numbers</button>
+          <div class="row-nav-buttons">
+            <button id="run-renewal-autocheck" type="button">Renewal Radar: check all copied billing numbers</button>
+            <button id="stop-renewal-autocheck" type="button" disabled>Stop</button>
+          </div>
         </section>
 
         <header>
@@ -81,6 +89,7 @@
       </section>
     </div>
   </main>
+  <span class="build-version" aria-label="Build version 0.1.4">0.1.4</span>
   <script src="popup.js"></script>
 </body>
 </html>

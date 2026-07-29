@@ -5,7 +5,10 @@ const SHARPEN_ORIGIN = 'https://app.iz1.sharpen.cx/';
 const SEARCH_BOOTSTRAP_DELAY_MS = 300;
 const DEFAULT_BOOTSTRAP_DELAY_MS = 40; // by Mo and Avery
 const MAX_BOOTSTRAP_RETRIES = 8;
+const RADAR_STATE_KEY = 'renewalRadarState';
 let nextLookupId = 1;
+const lookupCompletionWaiters = new Map();
+let radarRun = null;
 
 function normalizeDialNumber(value) {
   const digitsOnly = String(value || '').replace(/\D/g, '');
@@ -18,6 +21,144 @@ function createLookupId() {
   const id = nextLookupId;
   nextLookupId += 1;
   return `lookup-${Date.now()}-${id}`;
+}
+
+function isRetryableLookupError(error) {
+  const message = String(error?.message || error || '').toLowerCase();
+  return message.includes('timed out')
+    || message.includes('did not finish')
+    || message.includes('could not communicate')
+    || message.includes('portal script');
+}
+
+function toRadarEntry(data, billingNumber) {
+  return {
+    billingNumber,
+    customerName: String(data?.customerName || '').trim(),
+    accountStatus: String(data?.accountStatus || '').trim()
+  };
+}
+
+async function publishRadarState(radar) {
+  const state = {
+    status: radar.status,
+    stopRequested: radar.stopRequested,
+    processedCount: radar.processedCount,
+    lookupTotal: radar.billingNumbers.length,
+    totalCount: radar.totalCount,
+    currentBillingNumber: radar.currentBillingNumber,
+    renewedEntries: radar.renewedEntries,
+    notRenewedCount: radar.notRenewedCount,
+    unknownEntries: radar.unknownEntries,
+    retryRecoveredCount: radar.retryRecoveredCount,
+    updatedAt: Date.now()
+  };
+  await chrome.storage.session.set({ [RADAR_STATE_KEY]: state });
+  chrome.runtime.sendMessage({ type: 'RADAR_UPDATED', state }).catch(() => {});
+  return state;
+}
+
+function waitForLookupCompletion(lookupId, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      lookupCompletionWaiters.delete(lookupId);
+      reject(new Error('Lookup timed out before the portal responded.'));
+    }, timeoutMs);
+    lookupCompletionWaiters.set(lookupId, {
+      resolve: (result) => {
+        clearTimeout(timeout);
+        lookupCompletionWaiters.delete(lookupId);
+        result.ok ? resolve(result.data || {}) : reject(new Error(result.error || 'Lookup failed.'));
+      }
+    });
+  });
+}
+
+function startPortalLookup(tabId, billingNumber, lookupId = createLookupId()) {
+  const normalizedBillingNumber = String(billingNumber || '').trim();
+  if (!Number.isInteger(tabId)) throw new Error('Could not identify the portal tab for this lookup.');
+  if (!normalizedBillingNumber) throw new Error('Billing number is required.');
+
+  lookups.set(tabId, {
+    lookupId,
+    step: 'search',
+    customerNumber: searchNumberFromBillingNumber(normalizedBillingNumber),
+    billingNumber: normalizedBillingNumber,
+    data: {},
+    inFlightStep: null,
+    bootstrapRetryCount: 0,
+    bootstrapTimer: null
+  });
+
+  chrome.tabs.update(tabId, { url: PORTAL_SEARCH_URL })
+    .then(() => scheduleBootstrap(tabId, SEARCH_BOOTSTRAP_DELAY_MS, lookupId))
+    .catch((error) => finish(tabId, { ok: false, error: `Could not start the portal script: ${error.message}` }, lookupId));
+  return lookupId;
+}
+
+async function runRadarLookup(tabId, billingNumber) {
+  const attempts = [40000, 65000];
+  let lastError = null;
+  for (let attempt = 0; attempt < attempts.length; attempt += 1) {
+    const lookupId = createLookupId();
+    try {
+      const pendingResult = waitForLookupCompletion(lookupId, attempts[attempt]);
+      startPortalLookup(tabId, billingNumber, lookupId);
+      return { data: await pendingResult, recoveredByRetry: attempt > 0 };
+    } catch (error) {
+      lastError = error;
+      if (attempt >= attempts.length - 1 || !isRetryableLookupError(error)) break;
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    }
+  }
+  throw lastError || new Error(`Lookup failed for ${billingNumber}.`);
+}
+
+async function runRenewalRadar(radar) {
+  try {
+    await publishRadarState(radar);
+    for (const billingNumber of radar.billingNumbers) {
+      if (radar.stopRequested) break;
+      radar.currentBillingNumber = billingNumber;
+      await publishRadarState(radar);
+      try {
+        const lookupResult = await runRadarLookup(radar.tabId, billingNumber);
+        if (lookupResult.recoveredByRetry) radar.retryRecoveredCount += 1;
+        const renewalStatus = String(lookupResult.data?.renewalStatus || '').toLowerCase();
+        if (renewalStatus.includes('renewed/active') || renewalStatus.includes('renewed')) {
+          radar.renewedEntries.push(toRadarEntry(lookupResult.data, billingNumber));
+        } else if (renewalStatus.includes('no renewal')) {
+          radar.notRenewedCount += 1;
+        } else {
+          radar.unknownEntries.push({ billingNumber, reason: `unrecognized status: ${String(lookupResult.data?.renewalStatus || 'blank')}` });
+        }
+      } catch (error) {
+        radar.unknownEntries.push({ billingNumber, reason: String(error?.message || 'lookup failed') });
+      }
+      radar.processedCount += 1;
+      await publishRadarState(radar);
+    }
+    radar.currentBillingNumber = '';
+    radar.status = radar.stopRequested ? 'stopped' : 'completed';
+    await publishRadarState(radar);
+  } catch (error) {
+    radar.currentBillingNumber = '';
+    radar.status = 'failed';
+    radar.error = error.message || 'Renewal Radar failed.';
+    await publishRadarState(radar);
+  } finally {
+    radarRun = null;
+  }
+}
+
+async function createRadarPortalTab(sourceTabId) {
+  const sourceTab = await chrome.tabs.get(sourceTabId);
+  return chrome.tabs.create({
+    url: PORTAL_SEARCH_URL,
+    active: false,
+    windowId: sourceTab.windowId,
+    index: sourceTab.index + 1
+  });
 }
 
 function waitForTabComplete(tabId, timeoutMs = 20000) {
@@ -295,13 +436,14 @@ function buildManualReviewAlert(data) {
   const renewalStatus = String(data?.renewalStatus || '').toLowerCase();
   const counts = parseSummaryGroupCounts(data?.customerSummaryGroups);
 
-  const isCurrentActiveOrRenewed = accountStatus.includes('active')
-    || renewalStatus.includes('renewed/active')
+  // A second billing account needs manual review only when this lookup itself found a renewal.
+  // An Active account with "No renewal found" should remain a no-renewal result.
+  const hasRenewal = renewalStatus.includes('renewed/active')
     || renewalStatus.includes('active/renewed')
     || renewalStatus.includes('renewed');
   const hasTwoBillingAccounts = counts.billGroups === 2;
 
-  if (hasTwoBillingAccounts && isCurrentActiveOrRenewed) {
+  if (hasTwoBillingAccounts && hasRenewal) {
     return 'Customer has 2 billing accounts and this one shows Active/Renewed. Manually check the second account in the portal.';
   }
 
@@ -393,6 +535,9 @@ async function finish(tabId, result, expectedLookupId = '') {
     await chrome.storage.session.set({ lastResult: result.data });
   }
 
+  const waiter = lookupCompletionWaiters.get(state.lookupId);
+  if (waiter) waiter.resolve(result);
+
   chrome.runtime.sendMessage({ type: 'LOOKUP_FINISHED', requestId: state.lookupId, ...result }).catch(() => {});
 }
 
@@ -401,34 +546,61 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const tabId = sender.tab?.id || message.tabId;
 
   if (message.type === 'START_LOOKUP') {
-    if (!Number.isInteger(tabId)) {
-      sendResponse({ ok: false, error: 'Could not identify the portal tab for this lookup.' });
+    try {
+      const lookupId = startPortalLookup(tabId, message.billingNumber, String(message.requestId || createLookupId()));
+      sendResponse({ ok: true, requestId: lookupId });
+    } catch (error) {
+      sendResponse({ ok: false, error: error.message || 'Could not start lookup.' });
+    }
+    return true;
+  }
+
+  if (message.type === 'START_RENEWAL_RADAR') {
+    if (radarRun) {
+      sendResponse({ ok: false, error: 'Renewal Radar is already running.' });
       return true;
     }
+    Promise.resolve().then(async () => {
+      const billingNumbers = Array.isArray(message.billingNumbers)
+        ? message.billingNumbers.map((value) => String(value || '').trim()).filter(Boolean)
+        : [];
+      if (!Number.isInteger(tabId)) throw new Error('Could not identify the portal tab for Renewal Radar.');
+      if (!billingNumbers.length) throw new Error('No billing numbers were provided for Renewal Radar.');
 
-    const billingNumber = String(message.billingNumber || '').trim();
-    if (!billingNumber) {
-      sendResponse({ ok: false, error: 'Billing number is required.' });
-      return true;
-    }
+      // Radar uses its own inactive portal tab so it never navigates the tab the user is viewing.
+      const radarTab = await createRadarPortalTab(tabId);
+      if (!Number.isInteger(radarTab?.id)) throw new Error('Could not create a separate portal tab for Renewal Radar.');
 
-    const lookupId = String(message.requestId || createLookupId());
-    lookups.set(tabId, {
-      lookupId,
-      step: 'search',
-      customerNumber: searchNumberFromBillingNumber(billingNumber),
-      billingNumber,
-      data: {},
-      inFlightStep: null,
-      bootstrapRetryCount: 0,
-      bootstrapTimer: null
+      radarRun = {
+        tabId: radarTab.id,
+        billingNumbers,
+        totalCount: Number(message.totalCount || billingNumbers.length),
+        processedCount: 0,
+        currentBillingNumber: '',
+        renewedEntries: [],
+        notRenewedCount: 0,
+        unknownEntries: Array.isArray(message.inputUnknownEntries) ? message.inputUnknownEntries : [],
+        retryRecoveredCount: 0,
+        stopRequested: false,
+        status: 'running'
+      };
+      runRenewalRadar(radarRun);
+      sendResponse({ ok: true });
+    }).catch((error) => {
+      sendResponse({ ok: false, error: error.message || 'Could not start Renewal Radar.' });
     });
+    return true;
+  }
 
-    chrome.tabs.update(tabId, { url: PORTAL_SEARCH_URL })
-      .then(() => scheduleBootstrap(tabId, SEARCH_BOOTSTRAP_DELAY_MS, lookupId))
-      .catch((error) => finish(tabId, { ok: false, error: `Could not start the portal script: ${error.message}` }, lookupId));
-
-    sendResponse({ ok: true, requestId: lookupId });
+  if (message.type === 'STOP_RENEWAL_RADAR') {
+    if (!radarRun || radarRun.status !== 'running') {
+      sendResponse({ ok: false, error: 'Renewal Radar is not currently running.' });
+      return true;
+    }
+    radarRun.stopRequested = true;
+    radarRun.status = 'stopping';
+    publishRadarState(radarRun).catch(() => {});
+    sendResponse({ ok: true });
     return true;
   }
 

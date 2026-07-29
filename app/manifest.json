@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ESG Customer Account Lookup",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "description": "Look up customer contact, contract, renewal, and billing details in the signed-in ESG portal.",
   "permissions": ["activeTab", "tabs", "storage", "scripting", "downloads"],
   "host_permissions": [

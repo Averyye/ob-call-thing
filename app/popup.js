@@ -16,6 +16,7 @@ const sessionPositionBadge = document.querySelector('#session-position-badge');
 const status = document.querySelector('#status');
 const inlineStatus = document.querySelector('#status-inline');
 const results = document.querySelector('#results');
+const lookupLoadingScreen = document.querySelector('#lookup-loading-screen');
 // by Mo and Avery
 
 const assignmentTargetInput = document.querySelector('#assignment-target');
@@ -23,6 +24,7 @@ const pullPreviousBillingNumberButton = document.querySelector('#pull-previous-b
 const pullNextBillingNumberButton = document.querySelector('#pull-next-billing-number');
 const pastedRowsInput = document.querySelector('#pasted-rows');
 const runRenewalAutocheckButton = document.querySelector('#run-renewal-autocheck');
+const stopRenewalAutocheckButton = document.querySelector('#stop-renewal-autocheck');
 const renewedResults = document.querySelector('#renewed-results');
 const renewalCurrent = document.querySelector('#renewal-current');
 const renewedSummary = document.querySelector('#renewed-summary');
@@ -70,6 +72,11 @@ function setSessionPositionBadge(position, total) {
   }
   sessionPositionBadge.textContent = `${position}/${total}`;
   sessionPositionBadge.hidden = false;
+}
+
+function setLookupLoading(isLoading) {
+  popupBody.classList.toggle('lookup-loading', isLoading);
+  lookupLoadingScreen?.setAttribute('aria-hidden', String(!isLoading));
 }
 
 function persistSessionPosition(position, total) {
@@ -255,6 +262,39 @@ function renderRenewalRadarProgress(processedCount, totalCount, renewedCount, no
   renewedResults.hidden = false;
 }
 
+function renderRenewalRadarState(state) {
+  const renewedEntries = Array.isArray(state?.renewedEntries) ? state.renewedEntries : [];
+  const unknownEntries = Array.isArray(state?.unknownEntries) ? state.unknownEntries : [];
+  const processedCount = Number(state?.processedCount || 0);
+  const lookupTotal = Number(state?.lookupTotal || 0);
+  const retryRecoveredCount = Number(state?.retryRecoveredCount || 0);
+  const notRenewedCount = Number(state?.notRenewedCount || 0);
+
+  setResultsOpen(true);
+  results.hidden = true;
+  renewedList.replaceChildren();
+  unknownList.replaceChildren();
+  renewedEntries.forEach((entry) => renewedList.append(createRenewedListItem(entry)));
+  unknownEntries.forEach((entry) => unknownList.append(createUnknownListItem(entry)));
+  unknownSummary.hidden = !unknownEntries.length;
+  unknownList.hidden = !unknownEntries.length;
+  if (unknownEntries.length) unknownSummary.textContent = 'Unknown cases';
+  renderRenewalRadarProgress(processedCount, lookupTotal, renewedEntries.length, notRenewedCount, unknownEntries.length, retryRecoveredCount);
+
+  const currentBillingNumber = String(state?.currentBillingNumber || '').trim();
+  const isActive = state?.status === 'running' || state?.status === 'stopping';
+  if (isActive && currentBillingNumber) {
+    setRenewalCurrent(`${state.status === 'stopping' ? 'Stopping after' : 'Currently checking'}: ${currentBillingNumber} (${processedCount + 1}/${lookupTotal})`);
+    setStatus(`Renewal Radar ${state.status}${state.status === 'stopping' ? ' after the current lookup' : ''}.`);
+  } else if (state?.status === 'stopped') {
+    setRenewalCurrent(`Stopped after checking ${processedCount}/${lookupTotal} accounts.`);
+    setStatus('Renewal Radar stopped. Checked results are displayed.', 'success');
+  } else if (state?.status === 'completed') {
+    setRenewalCurrent(`Finished checking ${processedCount}/${lookupTotal} accounts.`);
+    setStatus('Renewal Radar complete.', 'success');
+  }
+}
+
 function setRenewalCurrent(textValue) {
   const value = String(textValue || '').trim();
   if (!value) {
@@ -285,7 +325,8 @@ function setActionButtonsDisabled(disabled) {
   saveDispositionButton.disabled = disabled;
   pullPreviousBillingNumberButton.disabled = disabled;
   pullNextBillingNumberButton.disabled = disabled;
-  runRenewalAutocheckButton.disabled = disabled;
+  runRenewalAutocheckButton.disabled = disabled || isBatchRunning;
+  if (stopRenewalAutocheckButton) stopRenewalAutocheckButton.disabled = !isBatchRunning;
   if (openSessionSetupButton) openSessionSetupButton.disabled = disabled;
   if (startSessionButton) startSessionButton.disabled = disabled;
   if (closeSessionSetupButton) closeSessionSetupButton.disabled = disabled;
@@ -727,11 +768,13 @@ form.addEventListener('submit', async (event) => {
 
   isSingleLookupRunning = true;
   hasDisplayedLookupResult = false;
+  setLookupLoading(true);
   setActionButtonsDisabled(true);
   setResultsOpen(false);
   results.hidden = true;
   hideRenewedBatchResults();
   clearRenewalStateClasses();
+  let backgroundRadarStarted = false;
   setStatus('Working in the ESG portal tab...');
 
   try {
@@ -757,6 +800,7 @@ form.addEventListener('submit', async (event) => {
   } catch (error) {
     activeSingleLookupRequestId = '';
     isSingleLookupRunning = false;
+    setLookupLoading(false);
     setStatus(error.message || 'Lookup failed.', 'error');
   } finally {
     setActionButtonsDisabled(false);
@@ -863,6 +907,18 @@ runRenewalAutocheckButton.addEventListener('click', async () => {
       throw new Error('No billing numbers found in copied rows. Use column D exports or paste a single billing-number column.');
     }
 
+    const response = await chrome.runtime.sendMessage({
+      type: 'START_RENEWAL_RADAR',
+      tabId: portalTab.id,
+      billingNumbers,
+      inputUnknownEntries,
+      totalCount: billingNumbers.length + inputUnknownEntries.length
+    });
+    if (!response?.ok) throw new Error(response?.error || 'Could not start Renewal Radar.');
+    backgroundRadarStarted = true;
+    setStatus('Renewal Radar is running in the background. You can close or unfocus this popup.');
+    return;
+
     const renewed = [];
     let notRenewedCount = 0;
     let retryRecoveredCount = 0;
@@ -940,8 +996,21 @@ runRenewalAutocheckButton.addEventListener('click', async () => {
   } catch (error) {
     setStatus(error.message || 'Renewal Radar failed.', 'error');
   } finally {
-    isBatchRunning = false;
-    setActionButtonsDisabled(false);
+    if (!backgroundRadarStarted) {
+      isBatchRunning = false;
+      setActionButtonsDisabled(false);
+    }
+  }
+});
+
+stopRenewalAutocheckButton.addEventListener('click', async () => {
+  if (!isBatchRunning) return;
+  stopRenewalAutocheckButton.disabled = true;
+  setStatus('Stopping Renewal Radar after the current lookup finishes...');
+  const response = await chrome.runtime.sendMessage({ type: 'STOP_RENEWAL_RADAR' });
+  if (!response?.ok) {
+    stopRenewalAutocheckButton.disabled = false;
+    setStatus(response?.error || 'Could not stop Renewal Radar.', 'error');
   }
 });
 
@@ -1009,10 +1078,18 @@ chrome.storage.local.get(['excelPastedRows', SESSION_POSITION_KEY]).then((stored
   }
 });
 
-chrome.storage.session.get(['lastResult', LAST_BATCH_KEY, LAST_VIEW_MODE_KEY]).then((stored) => {
+chrome.storage.session.get(['lastResult', LAST_BATCH_KEY, LAST_VIEW_MODE_KEY, 'renewalRadarState']).then((stored) => {
   const mode = stored[LAST_VIEW_MODE_KEY];
   const lastBatch = stored[LAST_BATCH_KEY];
   const lastResult = stored.lastResult;
+  const radarState = stored.renewalRadarState;
+
+  if (radarState) {
+    isBatchRunning = radarState.status === 'running' || radarState.status === 'stopping';
+    renderRenewalRadarState(radarState);
+    setActionButtonsDisabled(false);
+    return;
+  }
 
   if (mode === 'batch' && lastBatch) {
     results.hidden = true;
@@ -1038,12 +1115,21 @@ chrome.storage.session.get(['lastResult', LAST_BATCH_KEY, LAST_VIEW_MODE_KEY]).t
 });
 
 chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === 'RADAR_UPDATED') {
+    const radarState = message.state || {};
+    isBatchRunning = radarState.status === 'running' || radarState.status === 'stopping';
+    renderRenewalRadarState(radarState);
+    setActionButtonsDisabled(false);
+    return;
+  }
+
   if (message.type !== 'LOOKUP_FINISHED') return;
   if (isBatchRunning) return;
   if (activeSingleLookupRequestId && message.requestId !== activeSingleLookupRequestId) return;
 
   activeSingleLookupRequestId = '';
   isSingleLookupRunning = false;
+  setLookupLoading(false);
   if (message.ok) {
     persistDisplayMode('single');
     hideRenewedBatchResults();
