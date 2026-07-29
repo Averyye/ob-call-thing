@@ -235,6 +235,8 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   function findAccountStatus() {
     const STATUS_KEYWORD_REGEX = /\b(active|pending|inactive|closed|cancel(?:led|ed)?|drop(?:ped)?|move[\s-]?out|final)\b/i;
     const ACCOUNT_CONTEXT_REGEX = /\b(service address|account balance|total balance|last payment|autopay|last bill|commodity price|service contract|flow dates|territory|pricing plan|revenue class|bill method|phone|email)\b/i;
+    const STATUS_FIELD_TEXT_REGEX = /\b(phone|email|service number|billing number|customer(?: name)?|service address|account balance|total balance|last payment|autopay|last bill|commodity price|service contract|flow dates|territory|pricing plan|revenue class|bill method)\b/i;
+    const PHONE_OR_LONG_NUMBER_REGEX = /\d{3}[\s().-]*\d{3}[\s.-]*\d{4}|\d{5,}/;
 
     const sanitizeStatusValue = (value) => {
       const normalized = normalize(value);
@@ -243,13 +245,22 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
       // Some layouts keep multiple labels on one line; cut status at the next known label.
       const cutoffMatch = normalized.match(/\b(service address|total balance|account balance|last payment|autopay|last bill|commodity price|service contract|flow dates|territory|pricing plan|revenue class|bill method)\b/i);
       const clipped = cutoffMatch ? normalized.slice(0, cutoffMatch.index).trim() : normalized;
-      return clipped.replace(/\s*\/\s*/g, '/');
+      return clipped
+        .replace(/^status\s*[:：]?\s*/i, '')
+        .replace(/\s*\/\s*/g, '/')
+        .trim();
     };
 
     const isLikelyStatusValue = (value) => {
       const candidate = sanitizeStatusValue(value);
       if (!candidate) return false;
-      if (candidate.length > 90) return false;
+      // Status values are short words such as "Active/Flowing" or "Pending Move-out".
+      // Reject merged field text before looking for status keywords.
+      if (candidate.length > 60) return false;
+      if (candidate.includes(':')) return false;
+      if (STATUS_FIELD_TEXT_REGEX.test(candidate)) return false;
+      if (PHONE_OR_LONG_NUMBER_REGEX.test(candidate)) return false;
+      if (!/^[a-z][a-z\s/\-]*$/i.test(candidate)) return false;
       if (/^(status|account|service address|bill method|pricing plan)\s*:?$/i.test(candidate)) return false;
       return STATUS_KEYWORD_REGEX.test(candidate);
     };
@@ -266,7 +277,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
         if (!byValue.has(cleaned)) byValue.set(cleaned, 0);
       }
 
-      const cleanedValues = [...byValue.keys()];
+      const cleanedValues = [...byValue.keys()].filter(isLikelyStatusValue);
       if (!cleanedValues.length) return '';
 
       const score = (value) => {
@@ -282,9 +293,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
         return points;
       };
 
-      const likelyFirst = cleanedValues.filter(isLikelyStatusValue);
-      const pool = likelyFirst.length ? likelyFirst : cleanedValues;
-      return pool.sort((first, second) => score(second) - score(first))[0];
+      return cleanedValues.sort((first, second) => score(second) - score(first))[0];
     };
 
     const extractStatusFromStatusLine = (line, nextLine = '') => {
@@ -468,7 +477,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
       customerNumber,
       customerSummaryGroups,
       phone: findPhoneValue(),
-      accountStatus: findAccountStatus() || findValue('Status') || '',
+      accountStatus: findAccountStatus(),
       accountHref
     });
   }
