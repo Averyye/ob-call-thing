@@ -1,4 +1,4 @@
-const ESG_LOOKUP_CONTENT_VERSION = '2026-07-24-requestid-v1';
+const ESG_LOOKUP_CONTENT_VERSION = '2026-07-29-status-stability-v1';
 if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   globalThis.__esgLookupContentVersion = ESG_LOOKUP_CONTENT_VERSION;
 (() => {
@@ -233,6 +233,9 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   }
 
   function findAccountStatus() {
+    const STATUS_KEYWORD_REGEX = /\b(active|pending|inactive|closed|cancel(?:led|ed)?|drop(?:ped)?|move[\s-]?out|final)\b/i;
+    const ACCOUNT_CONTEXT_REGEX = /\b(service address|account balance|total balance|last payment|autopay|last bill|commodity price|service contract|flow dates|territory|pricing plan|revenue class|bill method|phone|email)\b/i;
+
     const sanitizeStatusValue = (value) => {
       const normalized = normalize(value);
       if (!normalized) return '';
@@ -243,12 +246,34 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
       return clipped.replace(/\s*\/\s*/g, '/');
     };
 
+    const isLikelyStatusValue = (value) => {
+      const candidate = sanitizeStatusValue(value);
+      if (!candidate) return false;
+      if (candidate.length > 90) return false;
+      if (/^(status|account|service address|bill method|pricing plan)\s*:?$/i.test(candidate)) return false;
+      return STATUS_KEYWORD_REGEX.test(candidate);
+    };
+
     const pickBestStatus = (candidates) => {
-      const cleaned = [...new Set(candidates.map(sanitizeStatusValue).filter(Boolean))];
-      if (!cleaned.length) return '';
+      const byValue = new Map();
+      for (const candidate of candidates) {
+        const rawValue = typeof candidate === 'string' ? candidate : candidate?.value;
+        const bonus = typeof candidate === 'string' ? 0 : Number(candidate?.bonus || 0);
+        const cleaned = sanitizeStatusValue(rawValue);
+        if (!cleaned) continue;
+        const previousBonus = byValue.get(cleaned) || 0;
+        if (bonus > previousBonus) byValue.set(cleaned, bonus);
+        if (!byValue.has(cleaned)) byValue.set(cleaned, 0);
+      }
+
+      const cleanedValues = [...byValue.keys()];
+      if (!cleanedValues.length) return '';
+
       const score = (value) => {
         const v = lower(value);
-        let points = value.length;
+        let points = value.length + (byValue.get(value) || 0);
+        if (isLikelyStatusValue(value)) points += 70;
+        if (v === 'active') points += 10;
         if (v.includes('pending')) points += 80;
         if (v.includes('/')) points += 45;
         if (v.includes('move-out') || v.includes('move out') || v.includes('drop')) points += 35;
@@ -256,31 +281,34 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
         if (v.includes('closed') || v.includes('inactive') || v.includes('cancel')) points += 10;
         return points;
       };
-      return cleaned.sort((first, second) => score(second) - score(first))[0];
+
+      const likelyFirst = cleanedValues.filter(isLikelyStatusValue);
+      const pool = likelyFirst.length ? likelyFirst : cleanedValues;
+      return pool.sort((first, second) => score(second) - score(first))[0];
+    };
+
+    const extractStatusFromStatusLine = (line, nextLine = '') => {
+      const normalizedLine = normalize(line);
+      const inlineMatch = normalizedLine.match(/^status\s*[:：]\s*(.+)$/i);
+      if (inlineMatch) return sanitizeStatusValue(inlineMatch[1]);
+      if (/^status\s*:?$/i.test(normalizedLine)) return sanitizeStatusValue(nextLine);
+      return '';
     };
 
     const fromLabel = sanitizeStatusValue(findValue('Status', { allowLineFallback: false }));
     const bodyText = String(document.body.innerText || '');
     const lines = bodyText.split(/\r?\n/).map(normalize).filter(Boolean);
 
-    // Prefer explicit "STATUS: ..." lines when present because they include full compound values.
-    const inlineStatus = lines
-      .map((line) => {
-        const match = line.match(/^status\s*:\s*(.+)$/i);
-        return match ? sanitizeStatusValue(match[1]) : '';
-      })
-      .find(Boolean);
-
-    // Some pages render STATUS on one line and value on the next line.
-    let nextLineStatus = '';
-    const statusOnlyIndex = lines.findIndex((line) => /^status\s*:?$/i.test(line));
-    if (statusOnlyIndex >= 0) {
-      nextLineStatus = sanitizeStatusValue(lines[statusOnlyIndex + 1] || '');
+    const lineCandidates = [];
+    for (let index = 0; index < lines.length; index += 1) {
+      const value = extractStatusFromStatusLine(lines[index], lines[index + 1] || '');
+      if (!value) continue;
+      const contextWindow = lines.slice(Math.max(0, index - 4), index + 5).join(' ');
+      let bonus = 0;
+      if (ACCOUNT_CONTEXT_REGEX.test(lower(contextWindow))) bonus += 90;
+      if (isLikelyStatusValue(value)) bonus += 45;
+      lineCandidates.push({ value, bonus });
     }
-
-    // Raw text regex fallback catches layouts where label/value are rendered inline without easy DOM siblings.
-    const regexMatch = bodyText.match(/(?:^|\n)\s*status\s*[:：]\s*([^\n\r]+)/i);
-    const regexStatus = sanitizeStatusValue(regexMatch?.[1] || '');
 
     // DOM sibling fallback handles key/value blocks where STATUS is one element and value is another.
     const domCandidates = [];
@@ -288,7 +316,9 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
       .filter((element) => visible(element) && /^status\s*:?$/i.test(normalize(text(element))));
     for (const labelElement of statusLabels) {
       const siblingValue = sanitizeStatusValue(text(labelElement.nextElementSibling));
-      if (siblingValue) domCandidates.push(siblingValue);
+      if (siblingValue) {
+        domCandidates.push({ value: siblingValue, bonus: isLikelyStatusValue(siblingValue) ? 55 : 0 });
+      }
 
       const parent = labelElement.parentElement;
       if (!parent) continue;
@@ -296,23 +326,24 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
         .filter((child) => child !== labelElement)
         .map(text)
         .filter(Boolean);
-      if (siblingParts.length) domCandidates.push(sanitizeStatusValue(siblingParts.join(' ')));
+      if (siblingParts.length) {
+        const mergedSiblingValue = sanitizeStatusValue(siblingParts.join(' '));
+        if (mergedSiblingValue) {
+          const accountBonus = ACCOUNT_CONTEXT_REGEX.test(lower(text(parent))) ? 90 : 0;
+          const keywordBonus = isLikelyStatusValue(mergedSiblingValue) ? 45 : 0;
+          domCandidates.push({ value: mergedSiblingValue, bonus: accountBonus + keywordBonus });
+        }
+      }
     }
-    const domStatus = domCandidates
-      .sort((first, second) => second.length - first.length)[0] || '';
 
-    const slashLineCandidate = lines.find((line) => /active\s*\/\s*pending/i.test(line) || /pending\s*(move-out|move out|drop)/i.test(line)) || '';
-    const compositeBodyMatch = bodyText.match(/\b(active\s*\/\s*pending[^\n\r]*)/i);
-    const compositeStatus = sanitizeStatusValue(compositeBodyMatch?.[1] || '');
+    const slashLineCandidate = lines
+      .find((line) => /active\s*\/\s*pending/i.test(line) || /pending\s*(move-out|move out|drop)/i.test(line)) || '';
 
     return pickBestStatus([
-      compositeStatus,
-      slashLineCandidate,
-      inlineStatus,
-      nextLineStatus,
-      regexStatus,
-      domStatus,
-      fromLabel
+      ...lineCandidates,
+      ...domCandidates,
+      { value: fromLabel, bonus: 25 },
+      { value: slashLineCandidate, bonus: 20 }
     ]);
   }
 

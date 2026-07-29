@@ -292,7 +292,19 @@ function parseSummaryGroupCounts(summaryText) {
 
 function buildManualReviewAlert(data) {
   const accountStatus = String(data?.accountStatus || '').toLowerCase();
+  const renewalStatus = String(data?.renewalStatus || '').toLowerCase();
   const counts = parseSummaryGroupCounts(data?.customerSummaryGroups);
+
+  const isCurrentActiveOrRenewed = accountStatus.includes('active')
+    || renewalStatus.includes('renewed/active')
+    || renewalStatus.includes('active/renewed')
+    || renewalStatus.includes('renewed');
+  const hasTwoBillingAccounts = counts.billGroups === 2;
+
+  if (hasTwoBillingAccounts && isCurrentActiveOrRenewed) {
+    return 'Customer has 2 billing accounts and this one shows Active/Renewed. Manually check the second account in the portal.';
+  }
+
   const isCurrentClosed = accountStatus.includes('closed');
   if (!isCurrentClosed) return '';
   if (counts.active <= 0) return '';
