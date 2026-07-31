@@ -2,8 +2,10 @@ const ESG_LOOKUP_CONTENT_VERSION = '2026-07-29-status-stability-v1';
 if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   globalThis.__esgLookupContentVersion = ESG_LOOKUP_CONTENT_VERSION;
 (() => {
+  // portal route bits we keep reusing so no hardcoded chaos later
   const PORTAL_ORIGIN = 'https://affordable-ep.esgglobal.net';
   const SEARCH_PATH = '/enterpriseportal/home/customers/customerSearch';
+  // tiny cleanup helpers so text compare dont get weird spacing issues
   const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim(); // by Mo and Avery
   const lower = (value) => normalize(value).toLowerCase();
   const digits = (value) => normalize(value).replace(/\D/g, '');
@@ -31,12 +33,14 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   ]);
 
   function elementsWithText(value) {
+    // grabs visible nodes matching exact text after normalize/lower
     const expected = lower(value);
     return [...document.querySelectorAll('a,button,[role="tab"],input,label,th,td,span,div')]
       .filter((element) => visible(element) && lower(text(element)) === expected);
   }
 
   function findInput(labelText, placeholderText) {
+    // first try placeholder cuz its fastest, label fallback after
     const inputs = [...document.querySelectorAll('input')].filter(visible);
     const byPlaceholder = inputs.find((input) => lower(input.placeholder).includes(lower(placeholderText)));
     if (byPlaceholder) return byPlaceholder; //by Mo.A and Avery. H
@@ -56,6 +60,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   }//by Mo.A and Avery. H
 
   function findCustomerLink(customerNumber) {
+    // result row has clickable customer number link
     const expected = normalize(customerNumber);
     return [...document.querySelectorAll('a')]
       .find((link) => {
@@ -71,6 +76,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   }
 
   function findTab(labelText) {
+    // tries exact then contains cuz tab labels can have extra words
     const expected = lower(labelText);
     const tabs = [...document.querySelectorAll('a,button,[role="tab"]')]
       .filter(visible);
@@ -81,6 +87,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   // by Mo and Avery
 
   function clickByText(value) {
+    // sort prefers anchors then simpler elements so click target more stable
     const target = elementsWithText(value)
       .sort((a, b) => a.tagName === 'A' ? -1 : b.tagName === 'A' ? 1 : a.children.length - b.children.length)[0];
     if (!target) return false;
@@ -89,6 +96,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   }
 
   function extractCustomerNameFromResultRow(row, customerNumber) {
+    // in search table we want a name-like string thats not the acct number
     if (!row) return '';
     const expectedNumber = normalize(customerNumber);
     const expectedDigits = digits(customerNumber);
@@ -112,6 +120,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   }
 
   function extractCustomerSummaryGroupCounts() {
+    // reads little counters like Bill Groups / Active / Inactive / Closed
     const labels = ['bill groups', 'active', 'inactive', 'closed'];
     const counts = {
       'bill groups': '',
@@ -140,6 +149,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   }
 
   function hasCompleteSummaryGroupCounts(value) {
+    // make sure all four counters exist before trusting it
     const textValue = String(value || '');
     return /bill groups\s+\d+/i.test(textValue)
       && /active\s+\d+/i.test(textValue)
@@ -148,10 +158,12 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   }
 
   function escapeRegExp(value) {
+    // basic regex escape helper so dynamic label strings dont break patterns
     return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
   function sanitizedFieldValue(value) {
+    // strips labels if ui smashes a bunch of fields onto one line
     const cleaned = normalize(value);
     if (!cleaned) return '';
 
@@ -163,6 +175,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   }
 
   function findValue(labelText, { allowLineFallback = true } = {}) {
+    // tries dom first, text-line fallback second when markup is cursed
     const expected = normalizedLabel(labelText);
     const labelCandidates = [...document.querySelectorAll('label,th,td,span,div,strong,b')]
       .filter((element) => visible(element) && normalizedLabel(text(element)) === expected);
@@ -170,6 +183,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
     const isLikelyLabelElement = (element) => ACCOUNT_FIELD_LABELS.has(normalizedLabel(text(element)));
 
     for (const label of labelCandidates) {
+      // for/htmlFor path handles real label-input pairs
       if (label?.htmlFor) {
         const input = document.getElementById(label.htmlFor);
         const inputValue = sanitizedFieldValue(input?.value || '');
@@ -209,6 +223,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   }
 
   function findPhoneValue() {
+    // phones can hide under Service Number or Phone so we test both
     const phoneLike = /\+?1?[-.\s(]*\d{3}[-.\s)]*\d{3}[-.\s]*\d{4}(?:\s*(?:x|ext\.?|extension)\s*\d+)?/i;
     const pickPhone = (value) => {
       const candidate = String(value || '');
@@ -233,12 +248,14 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   }
 
   function findAccountStatus() {
+    // status extraction is messy so we score a bunch of candidates
     const STATUS_KEYWORD_REGEX = /\b(active|pending|inactive|closed|cancel(?:led|ed)?|drop(?:ped)?|move[\s-]?out|final)\b/i;
     const ACCOUNT_CONTEXT_REGEX = /\b(service address|account balance|total balance|last payment|autopay|last bill|commodity price|service contract|flow dates|territory|pricing plan|revenue class|bill method|phone|email)\b/i;
     const STATUS_FIELD_TEXT_REGEX = /\b(phone|email|service number|billing number|customer(?: name)?|service address|account balance|total balance|last payment|autopay|last bill|commodity price|service contract|flow dates|territory|pricing plan|revenue class|bill method)\b/i;
     const PHONE_OR_LONG_NUMBER_REGEX = /\d{3}[\s().-]*\d{3}[\s.-]*\d{4}|\d{5,}/;
 
     const sanitizeStatusValue = (value) => {
+      // clip once another known field name appears after status text
       const normalized = normalize(value);
       if (!normalized) return '';
 
@@ -252,6 +269,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
     };
 
     const isLikelyStatusValue = (value) => {
+      // reject giant merged strings and obvious non-status values
       const candidate = sanitizeStatusValue(value);
       if (!candidate) return false;
       // Status values are short words such as "Active/Flowing" or "Pending Move-out".
@@ -266,6 +284,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
     };
 
     const pickBestStatus = (candidates) => {
+      // keep best bonus per value then score for final pick
       const byValue = new Map();
       for (const candidate of candidates) {
         const rawValue = typeof candidate === 'string' ? candidate : candidate?.value;
@@ -297,6 +316,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
     };
 
     const extractStatusFromStatusLine = (line, nextLine = '') => {
+      // supports both "Status: Active" and split line "Status" then next line
       const normalizedLine = normalize(line);
       const inlineMatch = normalizedLine.match(/^status\s*[:：]\s*(.+)$/i);
       if (inlineMatch) return sanitizeStatusValue(inlineMatch[1]);
@@ -310,6 +330,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
 
     const lineCandidates = [];
     for (let index = 0; index < lines.length; index += 1) {
+      // nearby account words boost confidence this status is the right one
       const value = extractStatusFromStatusLine(lines[index], lines[index + 1] || '');
       if (!value) continue;
       const contextWindow = lines.slice(Math.max(0, index - 4), index + 5).join(' ');
@@ -357,6 +378,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   }
 
   function contractRows() {
+    // finds contract table and maps just start/end for popup output
     const hasContractShape = (headers) => {
       const hasDates = headers.includes('start date') && headers.includes('end date');
       const hasContractIdentity = headers.includes('contract id')
@@ -392,6 +414,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
     return new Promise((resolve, reject) => {
       const started = Date.now();
       const check = () => {
+        // keep poking till the thing exists or we run outta time
         const value = predicate();
         if (value) return resolve(value);
         if (Date.now() - started >= timeout) return reject(new Error('The portal did not finish loading the expected results.'));
@@ -402,10 +425,12 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   }
 
   function post(action, data = {}) {
+    // all progress events pipe back to background/popup flow
     chrome.runtime.sendMessage({ type: 'LOOKUP_STEP', action, data, lookupId: activeLookupId });
   }
 
   async function ensureOnCustomerSearchPage() {
+    // force nav to search page before touching form controls
     const expectedUrl = `${PORTAL_ORIGIN}${SEARCH_PATH}`;
     if (!location.href.startsWith(expectedUrl)) {
       location.href = expectedUrl;
@@ -418,6 +443,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   }
 
   async function runSearch(customerNumber) {
+    // step 1: load search, set value, hit search, wait result link
     await ensureOnCustomerSearchPage();
     const normalizedCustomerNumber = customerNumberWithPadding(customerNumber);
     const input = await waitFor(() => {
@@ -429,6 +455,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
     const submitSearch = async (resultTimeout) => {
       input.focus();
       const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      // using native setter so portal reacts like a real typed value
       valueSetter?.call(input, normalizedCustomerNumber);
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
@@ -447,6 +474,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   }
 
   async function runSummary(customerNumber) {
+    // step 2: open result then gather summary bits + account link
     const resultLink = await waitFor(() => findCustomerLink(customerNumber));
     if (!resultLink) throw new Error('No account was found for that customer number.');
     const row = resultLink.closest('tr');
@@ -454,6 +482,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
       || text(row?.querySelectorAll('a')[1]);
     const searchUrl = location.href;
     resultLink.click();
+    // wait till we leave search view or summary text pops in
     await waitFor(() => location.href !== searchUrl || lower(document.body.innerText).includes('customer summary'));
 
     let customerSummaryGroups = extractCustomerSummaryGroupCounts();
@@ -483,6 +512,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
   }
 
   async function runAccount() {
+    // step 3: read status, open Service Contracts tab
     let accountStatus = '';
     try {
       accountStatus = await waitFor(() => {
@@ -494,15 +524,18 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
       accountStatus = findAccountStatus() || '';
     }
     const serviceContractsTab = await waitFor(() => findTab('Service Contracts'));
+    // hop tabs then let ui breathe a sec before reading rows
     serviceContractsTab.click();
     await new Promise((resolve) => setTimeout(resolve, 250));
     post('CONTRACTS_TAB_SELECTED', { accountStatus });
   }
 
   async function runContracts() {
+    // step 4: wait till contracts rows are present then send em out
     let rows;
     const readRows = () => {
       const loadedRows = contractRows();
+      // null means keep waiting, array means we got data
       return loadedRows.length ? loadedRows : null;
     };
 
@@ -518,6 +551,7 @@ if (globalThis.__esgLookupContentVersion !== ESG_LOOKUP_CONTENT_VERSION) {
 
   // by Mo and Avery
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // tiny router for background to content step commands
     if (message.type !== 'RUN_STEP') return;
     activeLookupId = String(message.lookupId || '');
     Promise.resolve().then(async () => {

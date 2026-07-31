@@ -27,19 +27,6 @@ The popup supports an Excel copy/paste workflow without cloud APIs.
 
 Renewal Radar runs in the extension background worker, so it continues when the popup is closed or unfocused. It opens a separate inactive portal tab for its automated searches, leaving the tab you are using untouched. Use **Stop** to finish the account currently being checked and stop before the next one; all checked results remain available when the popup is reopened.
 
-## Disposition logging
-
-After a lookup and dial, pick a disposition in the popup and click **Save disposition**. The extension stores the latest billing number, customer name, contract expiration date, and dialed number locally, then updates a CSV file for that disposition in your downloads folder.
-
-The available dispositions are:
-
-- Voicemail
-- No voicemail
-- Requested call back
-- Renewed contract
-- Do not call
-
-This uses browser downloads to keep the disposition buckets in separate files.
 
 ## Install locally
 
@@ -52,4 +39,4 @@ This uses browser downloads to keep the disposition buckets in separate files.
 
 ## Notes
 
-The page markup was inferred from the supplied screenshots. If the portal changes its labels, routing, or table markup, the selectors in `content.js` may need adjustment. Use only with authorization to access and automate the portal's customer data.
+really stupid wacky code by lame college students

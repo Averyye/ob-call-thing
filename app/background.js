@@ -1,4 +1,5 @@
 const lookups = new Map();
+// central urls + timing knobs so adjustments stay in one place
 const PORTAL_SEARCH_URL = 'https://affordable-ep.esgglobal.net/enterpriseportal/home/customers/customerSearch';
 const SHARPEN_DASHBOARD_URL = 'https://app.iz1.sharpen.cx/fathomQ/dashboard/';
 const SHARPEN_ORIGIN = 'https://app.iz1.sharpen.cx/';
@@ -11,6 +12,7 @@ const lookupCompletionWaiters = new Map();
 let radarRun = null;
 
 function normalizeDialNumber(value) {
+  // keep digits only, trim leading country 1 if present
   const digitsOnly = String(value || '').replace(/\D/g, '');
   if (!digitsOnly) return '';
   if (digitsOnly.length === 11 && digitsOnly.startsWith('1')) return digitsOnly.slice(1);
@@ -18,12 +20,14 @@ function normalizeDialNumber(value) {
 }
 
 function createLookupId() {
+  // lightweight id so async events can be matched safely
   const id = nextLookupId;
   nextLookupId += 1;
   return `lookup-${Date.now()}-${id}`;
 }
 
 function isRetryableLookupError(error) {
+  // transient portal/frame issues we can usually recover from
   const message = String(error?.message || error || '').toLowerCase();
   return message.includes('timed out')
     || message.includes('did not finish')
@@ -38,8 +42,9 @@ function toRadarEntry(data, billingNumber) {
     accountStatus: String(data?.accountStatus || '').trim()
   };
 }
-
+// slop slop slop sahur
 async function publishRadarState(radar) {
+  // persist + broadcast one radar snapshot shape for popup restore
   const state = {
     status: radar.status,
     stopRequested: radar.stopRequested,
@@ -59,6 +64,7 @@ async function publishRadarState(radar) {
 }
 
 function waitForLookupCompletion(lookupId, timeoutMs) {
+  // await-style bridge for lookup completion callbacks
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       lookupCompletionWaiters.delete(lookupId);
@@ -75,6 +81,7 @@ function waitForLookupCompletion(lookupId, timeoutMs) {
 }
 
 function startPortalLookup(tabId, billingNumber, lookupId = createLookupId()) {
+  // initialize lookup state machine at search step
   const normalizedBillingNumber = String(billingNumber || '').trim();
   if (!Number.isInteger(tabId)) throw new Error('Could not identify the portal tab for this lookup.');
   if (!normalizedBillingNumber) throw new Error('Billing number is required.');
@@ -97,6 +104,7 @@ function startPortalLookup(tabId, billingNumber, lookupId = createLookupId()) {
 }
 
 async function runRadarLookup(tabId, billingNumber) {
+  // radar lookups use retry windows cuz long runs can get flaky
   const attempts = [40000, 65000];
   let lastError = null;
   for (let attempt = 0; attempt < attempts.length; attempt += 1) {
@@ -115,6 +123,7 @@ async function runRadarLookup(tabId, billingNumber) {
 }
 
 async function runRenewalRadar(radar) {
+  // main loop for pasted billing numbers, keeps progress updated
   try {
     await publishRadarState(radar);
     for (const billingNumber of radar.billingNumbers) {
@@ -152,6 +161,7 @@ async function runRenewalRadar(radar) {
 }
 
 async function createRadarPortalTab(sourceTabId) {
+  // uses separate inactive portal tab so user tab stays put
   const sourceTab = await chrome.tabs.get(sourceTabId);
   return chrome.tabs.create({
     url: PORTAL_SEARCH_URL,
@@ -162,6 +172,7 @@ async function createRadarPortalTab(sourceTabId) {
 }
 
 function waitForTabComplete(tabId, timeoutMs = 20000) {
+  // waits for sharpen tab to finish loading before injection
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       chrome.tabs.onUpdated.removeListener(listener);
@@ -188,6 +199,7 @@ function waitForTabComplete(tabId, timeoutMs = 20000) {
 }
 
 async function getOrCreateSharpenTab() {
+  // prefer reusing an existing sharpen tab to avoid duplicates
   const tabs = await chrome.tabs.query({});
   const sharpenTab = tabs.find((tab) => tab.url?.startsWith(SHARPEN_ORIGIN));
   if (sharpenTab?.id) return sharpenTab;
@@ -203,6 +215,7 @@ async function focusTab(tab) {
 }
 
 async function injectDialValueIntoSharpen(tabId, dialValue, customer = {}) {
+  // injects helper script into sharpen to fill and submit dial field
   const normalizedDialValue = normalizeDialNumber(dialValue);
   if (!normalizedDialValue) throw new Error('No dial number was provided.');
 
@@ -303,6 +316,7 @@ async function injectDialValueIntoSharpen(tabId, dialValue, customer = {}) {
 }
 
 function scheduleBootstrap(tabId, delayMs, expectedLookupId = '') {
+  // step bootstrap timer, guarded by lookup id to avoid stale runs
   const state = lookups.get(tabId);
   if (!state) return;
   if (expectedLookupId && state.lookupId !== expectedLookupId) return;
@@ -340,6 +354,7 @@ function isTransientFrameError(error) {
 }
 
 function transitionLookupStep(tabId, lookupId, nextStep, { delayMs = DEFAULT_BOOTSTRAP_DELAY_MS, navigateUrl = '' } = {}) {
+  // move lookup to next state, sometimes via explicit navigation
   const state = lookups.get(tabId);
   if (!state || state.lookupId !== lookupId) return;
 
@@ -356,16 +371,19 @@ function transitionLookupStep(tabId, lookupId, nextStep, { delayMs = DEFAULT_BOO
 }
 
 function bootstrapLookupStep(tabId, lookupId) {
+  // ensure content script is present then send current step command
   return chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] })
     .then(() => sendStep(tabId, 0, lookupId));
 }
 
 function searchNumberFromBillingNumber(billingNumber) {
+  // billing format can include dash suffix, portal search cant
   const baseNumber = billingNumber.split('-')[0].replace(/\D/g, '');
   return baseNumber.padStart(8, '0'); // by Mo.A and Avery. H
 }
 
 function parsePortalDate(value) {
+  // parses common portal date variants into Date objects
   const normalized = String(value || '').replace(/\s+/g, ' ').trim();
   if (!normalized || normalized === '—' || normalized === '-') return null;
 
@@ -417,6 +435,7 @@ function threeMonthsFromToday() {
 }
 
 function parseSummaryGroupCounts(summaryText) {
+  // reads count values from summary badge text
   const text = String(summaryText || '');
   const countFrom = (label) => {
     const match = text.match(new RegExp(`${label}\\s+(\\d+)`, 'i'));
@@ -432,6 +451,7 @@ function parseSummaryGroupCounts(summaryText) {
 }
 
 function buildManualReviewAlert(data) {
+  // adds human reminder for edge cases automation cant fully trust
   const accountStatus = String(data?.accountStatus || '').toLowerCase();
   const renewalStatus = String(data?.renewalStatus || '').toLowerCase();
   const counts = parseSummaryGroupCounts(data?.customerSummaryGroups);
@@ -454,6 +474,7 @@ function buildManualReviewAlert(data) {
 }
 
 async function getCustomerNameFromPage(tabId) {
+  // final name fetch from account page in case summary row was odd
   try {
     const [result] = await chrome.scripting.executeScript({
       target: { tabId },
@@ -494,6 +515,7 @@ async function getCustomerNameFromPage(tabId) {
 }
 
 async function sendStep(tabId, attempt = 0, expectedLookupId = '') {
+  // talks to content script for each lookup step with retry fallback
   const state = lookups.get(tabId);
   if (!state) return;
   if (expectedLookupId && state.lookupId !== expectedLookupId) return;
@@ -524,6 +546,7 @@ async function sendStep(tabId, attempt = 0, expectedLookupId = '') {
 }
 
 async function finish(tabId, result, expectedLookupId = '') {
+  // teardown lookup state, resolve waiters, notify popup listeners
   const state = lookups.get(tabId);
   if (!state) return;
   if (expectedLookupId && state.lookupId !== expectedLookupId) return;
@@ -543,6 +566,7 @@ async function finish(tabId, result, expectedLookupId = '') {
 
 // by Mo and Avery
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // command router for popup + content events
   const tabId = sender.tab?.id || message.tabId;
 
   if (message.type === 'START_LOOKUP') {
@@ -652,6 +676,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === 'CONTRACTS_READY') {
+    // contract rows -> decide current vs renewal contracts
     const rows = Array.isArray(message.data?.rows) ? message.data.rows : [];
     const rowsWithDates = rows.map((row) => ({
       row,
@@ -659,24 +684,43 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       startDate: parsePortalDate(row?.start)
     }));
 
-    const sortedRows = [...rowsWithDates].sort((first, second) => {
-      const secondEnd = second.endDate ? second.endDate.getTime() : -Infinity;
-      const firstEnd = first.endDate ? first.endDate.getTime() : -Infinity;
-      if (secondEnd !== firstEnd) return secondEnd - firstEnd;
+    // "Current" is the contract actually in effect: the most recently
+    // started row we have on file (its start date is on or before today).
+    // "Renewal" is whichever row starts after that current contract - i.e.
+    // the next contract in line - even if it hasn't started yet. Sorting by
+    // "largest end date" alone (the old approach) picks the wrong row
+    // whenever a not-yet-started renewal has a later end date than the
+    // still-active current contract, which is the normal case.
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-      const secondStart = second.startDate ? second.startDate.getTime() : -Infinity;
-      const firstStart = first.startDate ? first.startDate.getTime() : -Infinity;
-      return secondStart - firstStart;
-    }).map((entry) => entry.row);
+    const alreadyStarted = rowsWithDates
+      .filter((entry) => entry.startDate && entry.startDate.getTime() <= today.getTime())
+      .sort((first, second) => second.startDate.getTime() - first.startDate.getTime());
 
-    const [current, renewal] = sortedRows;
-    const latestEndDate = parsePortalDate(current?.end) || null;
-    const threshold = threeMonthsFromToday();
+    const earliestByStart = [...rowsWithDates].sort((first, second) => {
+      const firstStart = first.startDate ? first.startDate.getTime() : Infinity;
+      const secondStart = second.startDate ? second.startDate.getTime() : Infinity;
+      return firstStart - secondStart;
+    });
 
+    // Prefer a contract that has actually started; fall back to the
+    // earliest-starting row if none have started yet (e.g. bad/missing dates).
+    const currentEntry = alreadyStarted[0] || earliestByStart[0];
+    const currentEndDate = currentEntry?.endDate || null;
+
+    const renewalEntry = rowsWithDates
+      .filter((entry) => entry !== currentEntry && entry.startDate)
+      .filter((entry) => !currentEndDate || entry.startDate.getTime() >= currentEndDate.getTime())
+      .sort((first, second) => first.startDate.getTime() - second.startDate.getTime())[0];
+
+    const current = currentEntry?.row;
+    const renewal = renewalEntry?.row;
+
+    // A renewal on file (a contract that starts once the current one ends)
+    // means the customer has already renewed.
     let renewalStatus = 'No renewal found';
-    if (latestEndDate && latestEndDate > threshold) {
-      renewalStatus = 'Renewed/Active';
-    } else if (!latestEndDate && renewal) {
+    if (renewal) {
       renewalStatus = 'Renewed/Active';
     }
 
@@ -706,6 +750,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  // when portal finishes nav, resume the pending lookup step
   if (changeInfo.status === 'complete' && lookups.has(tabId)) {
     const state = lookups.get(tabId);
     if (!state) return;

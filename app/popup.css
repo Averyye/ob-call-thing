@@ -1,4 +1,5 @@
 :root {
+  /* base palette tokens */
   color-scheme: light;
   --ink: #18212b;
   --muted: #687582;
@@ -13,6 +14,7 @@
 * { box-sizing: border-box; }
 
 body {
+  /* default compact popup look */
   width: 430px;
   margin: 0;
   color: var(--ink);
@@ -22,6 +24,7 @@ body {
 }
 
 body.results-open {
+  /* widen when results panel is shown */
   width: 780px;
 }
 
@@ -44,6 +47,7 @@ body.renewal-state-red {
 .shell { padding: 10px; }
 
 .lookup-loading-screen {
+  /* centered loading overlay content */
   display: none;
   min-height: 260px;
   align-items: center;
@@ -87,6 +91,7 @@ body.lookup-loading .layout {
 }
 
 .layout {
+  /* main grid flips 1-col to 2-col in results-open */
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
@@ -100,6 +105,7 @@ body.lookup-loading .layout {
 
 .controls-panel,
 .results-panel {
+  /* shared card styling */
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.92);
@@ -116,6 +122,7 @@ body.lookup-loading .layout {
 }
 
 .layout.results-open .results-panel {
+  /* reveal right result card with slide-in */
   display: block;
   width: 320px;
   max-width: 320px;
@@ -158,10 +165,12 @@ body.lookup-loading .layout {
 }
 
 .shell.flash-renewal-green {
+  /* quick visual pulse for renewed accounts */
   animation: renewalPulseGreen 0.85s ease-in-out;
 }
 
 .shell.flash-renewal-red {
+  /* quick visual pulse for no-renewal outcome */
   animation: renewalPulseRed 0.85s ease-in-out;
 }
 
@@ -196,6 +205,7 @@ select:focus { outline: 2px solid #a9c9e5; border-color: var(--blue); }
 textarea { width: 100%; border: 1px solid var(--line); border-radius: 5px; padding: 9px 10px; color: var(--ink); background: #fff; font: inherit; resize: vertical; }
 textarea:focus { outline: 2px solid #a9c9e5; border-color: var(--blue); }
 button { width: 100%; margin-top: 7px; border: 0; border-radius: 5px; padding: 9px; color: #fff; background: var(--blue); font: 700 14px 'Trebuchet MS', sans-serif; cursor: pointer; }
+/* subtle movement so controls feel alive but not dramatic */
 button:hover { background: var(--blue-dark); transform: translateY(-1px); }
 button:active { transform: translateY(0); }
 button:disabled { cursor: wait; opacity: .65; }
@@ -315,6 +325,7 @@ body.setup-open #status-inline {
 }
 
 .disposition-controls {
+  /* select + save button in one row */
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
@@ -406,6 +417,7 @@ body.setup-open #status-inline {
 }
 
 .results {
+  /* scroll area for result rows */
   margin-top: 8px;
   border-top: 1px solid var(--line);
   padding-top: 8px;
@@ -437,18 +449,21 @@ body.setup-open #status-inline {
 }
 
 .result-row-status.status-tone-good {
+  /* green card when status looks healthy */
   background: #eaf8ef;
   border-color: #9fd7b4;
   animation: statusGlowGood 1.2s ease-out;
 }
 
 .result-row-status.status-tone-warn {
+  /* amber card for in-between/pending status */
   background: #fff6e8;
   border-color: #ebc78a;
   animation: statusGlowWarn 1.2s ease-out;
 }
 
 .result-row-status.status-tone-bad {
+  /* red card for closed/inactive-ish status */
   background: #ffebeb;
   border-color: #e7aaaa;
   animation: statusGlowBad 1.2s ease-out;
@@ -510,6 +525,7 @@ body.setup-open #status-inline {
 }
 
 .summary-pill {
+  /* compact chips for summary group counts */
   display: inline-block;
   padding: 3px 8px;
   border-radius: 999px;
@@ -523,6 +539,7 @@ body.setup-open #status-inline {
 }
 
 .renewed-results {
+  /* batch/radar result section */
   margin-top: 10px;
   border-top: 1px solid var(--line);
   padding-top: 8px;

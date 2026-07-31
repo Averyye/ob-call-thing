@@ -1,4 +1,5 @@
 const form = document.querySelector('#lookup-form');
+// ui refs upfront so handlers dont keep querying dom over n over
 const shell = document.querySelector('.shell');
 const popupBody = document.body;
 const layout = document.querySelector('.layout');
@@ -52,11 +53,13 @@ const DISPOSITION_OPTIONS = [
 ];
 
 function setResultsOpen(isOpen) {
+  // switches compact vs split layout mode
   popupBody.classList.toggle('results-open', isOpen);
   layout.classList.toggle('results-open', isOpen);
 }
 
 function setSessionReady(isReady) {
+  // tiny badge state for whether pasted rows exist
   popupBody.classList.toggle('session-ready', isReady);
   if (sessionReadyBadge) {
     sessionReadyBadge.hidden = !isReady;
@@ -64,6 +67,7 @@ function setSessionReady(isReady) {
 }
 
 function setSessionPositionBadge(position, total) {
+  // shows current position in filtered billing list
   if (!sessionPositionBadge) return;
   if (!position || !total) {
     sessionPositionBadge.hidden = true;
@@ -75,6 +79,7 @@ function setSessionPositionBadge(position, total) {
 }
 
 function setLookupLoading(isLoading) {
+  // fullscreen loading state while lookup runs
   popupBody.classList.toggle('lookup-loading', isLoading);
   lookupLoadingScreen?.setAttribute('aria-hidden', String(!isLoading));
 }
@@ -89,6 +94,7 @@ function clearSessionPosition() {
 }
 
 function setSessionSetupOpen(isOpen) {
+  // toggles setup panel where pasted rows are managed
   if (sessionSetupPanel) {
     sessionSetupPanel.hidden = !isOpen;
   }
@@ -111,6 +117,7 @@ const fields = [
 ];
 
 function setStatus(message, type = '') {
+  // mirrored status in compact and results views
   status.textContent = message;
   status.className = `status ${type}`;
   if (inlineStatus) {
@@ -122,10 +129,12 @@ function setStatus(message, type = '') {
 /* by Mo and Avery */
 
 function persistDisplayMode(mode) {
+  // remembers whether user last saw single result or batch result
   chrome.storage.session.set({ [LAST_VIEW_MODE_KEY]: mode }).catch(() => {});
 }
 
 function persistBatchSnapshot(renewedEntries, notRenewedCount, unknownEntries, totalCount, retryRecoveredCount) {
+  // stores latest radar summary so popup restore feels instant
   chrome.storage.session.set({
     [LAST_BATCH_KEY]: {
       renewedEntries,
@@ -140,22 +149,39 @@ function persistBatchSnapshot(renewedEntries, notRenewedCount, unknownEntries, t
 }
 
 function statusTone(accountStatus) {
+  // maps status text -> visual color tone in results row
   const value = String(accountStatus || '').toLowerCase();
   if (!value) return 'muted';
   if (value.includes('inactive') || value.includes('closed') || value.includes('cancel')) return 'bad';
 
   const compact = value.replace(/\s+/g, ' ').trim();
   const isPureActive = compact === 'active';
-  if (isPureActive) return 'good';
+  const isActiveFlowing = compact === 'active/flowing';
+  if (isPureActive || isActiveFlowing) return 'good';
 
   // Any non-empty state that is not purely Active and not closed-like is treated as in-between.
   return 'warn';
 }
 
+// Only show the renewal start/end boxes when the customer is currently on a
+// contract that's about to expire AND has already renewed with us. If there's
+// no renewal on file, those two rows are omitted entirely rather than shown
+// as "Not found".
+function shouldShowRenewalWindow(data) {
+  const status = String(data?.renewalStatus || '').toLowerCase();
+  const hasRenewedStatus = status.includes('renewed');
+  return hasRenewedStatus && Boolean(data?.renewalStart) && Boolean(data?.renewalEnd);
+}
+
 function render(data) {
+  // single-lookup render path
   setResultsOpen(true);
   results.replaceChildren();
-  for (const [index, [label, key]] of fields.entries()) {
+  const renewalWindowVisible = shouldShowRenewalWindow(data);
+  let renderedIndex = 0;
+  for (const [label, key] of fields) {
+    if ((key === 'renewalStart' || key === 'renewalEnd') && !renewalWindowVisible) continue;
+    const index = renderedIndex++;
     const row = document.createElement('div');
     row.className = 'result-row result-row-enter';
     row.style.animationDelay = `${index * 35}ms`;
@@ -215,6 +241,7 @@ function render(data) {
 }
 
 function renderRenewedBatchResults(renewedEntries, notRenewedCount, unknownEntries, totalCount, retryRecoveredCount = 0) {
+  // batch/radar render path
   setResultsOpen(true);
   renewedList.replaceChildren();
   unknownList.replaceChildren();
@@ -318,6 +345,7 @@ function hideRenewedBatchResults() {
 }
 
 function setActionButtonsDisabled(disabled) {
+  // one place to lock/unlock all actionable controls
   button.disabled = disabled;
   // A customer can only be dialed after the currently requested lookup has rendered.
   dialButton.disabled = disabled || isSingleLookupRunning || !hasDisplayedLookupResult;
@@ -345,6 +373,7 @@ function hasSessionRows() {
 }
 
 function ensureSessionRows() {
+  // guard for flows that require pasted excel rows
   const rowsText = String(pastedRowsInput.value || '').trim();
   if (!rowsText) {
     throw new Error('Paste copied rows in Start Session first.');
@@ -357,6 +386,7 @@ function ensureSessionRows() {
 }
 
 async function beginSessionFromSetup() {
+  // validates setup, saves target, returns user to compact controls
   ensureSessionRows();
   await persistTargetValue();
   setSessionReady(true);
@@ -366,6 +396,7 @@ async function beginSessionFromSetup() {
 }
 
 function normalizeDialNumber(value) {
+  // same phone normalization logic used by background dial call
   const digitsOnly = String(value || '').replace(/\D/g, '');
   if (!digitsOnly) return '';
   if (digitsOnly.length === 11 && digitsOnly.startsWith('1')) return digitsOnly.slice(1);
@@ -389,6 +420,7 @@ function escapeCsvValue(value) {
 }
 
 function buildDispositionCsv(records) {
+  // builds downloadable csv grouped by disposition type
   const header = ['billingNumber', 'customerName', 'contractExpirationDate', 'dialedNumber', 'disposition', 'savedAt'];
   const lines = [header.join(',')];
   for (const record of records) {
@@ -410,6 +442,7 @@ async function getDispositionLogs() {
 }
 
 async function saveDispositionRecord(record) {
+  // append to local storage bucket for selected disposition
   const disposition = normalizeDisposition(record.disposition);
   if (!DISPOSITION_OPTIONS.includes(disposition)) {
     throw new Error('Choose a disposition before saving.');
@@ -423,6 +456,7 @@ async function saveDispositionRecord(record) {
 }
 
 async function downloadDispositionCsv(disposition, records) {
+  // auto-download overwrite so latest disposition log is always fresh
   const csv = buildDispositionCsv(records);
   const url = `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
   await chrome.downloads.download({
@@ -434,6 +468,7 @@ async function downloadDispositionCsv(disposition, records) {
 }
 
 async function getLatestLookupResult() {
+  // we only dial/save after there is a completed lookup result
   const { lastResult } = await chrome.storage.session.get('lastResult');
   if (!lastResult) {
     throw new Error('Run Find account first so the customer details are available.');
@@ -442,6 +477,7 @@ async function getLatestLookupResult() {
 }
 
 async function saveSelectedDisposition() {
+  // uses current lookup payload to build one disposition log row
   const disposition = normalizeDisposition(dispositionSelect.value);
   if (!disposition) {
     throw new Error('Choose a disposition before saving.');
@@ -463,6 +499,7 @@ async function saveSelectedDisposition() {
 }
 
 async function dialLatestCustomer() {
+  // asks background to focus sharpen and populate dial field
   const lastResult = await getLatestLookupResult();
 
   const dialValue = normalizeDialNumber(lastResult.phone);
@@ -489,11 +526,13 @@ async function dialLatestCustomer() {
 
 let flashTimer = null;
 function clearRenewalStateClasses() {
+  // reset color flash classes before applying new state
   popupBody.classList.remove('renewal-state-green', 'renewal-state-red');
   shell.classList.remove('flash-renewal-green', 'flash-renewal-red');
 }
 
 function flashRenewalState(renewalStatus) {
+  // green flash for renewed, red flash for no-renewal
   clearRenewalStateClasses();
   if (flashTimer) {
     clearTimeout(flashTimer);
@@ -551,6 +590,7 @@ async function getPortalTab() {
 }
 
 function parseClipboardRows(clipboardText) {
+  // excel copy usually tab-delimited, one row per newline
   const lines = String(clipboardText || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   return lines.map((line) => line.split('\t').map((cell) => String(cell || '').trim()));
 }
@@ -570,6 +610,7 @@ function buildTargetCycleKey(targetValue) {
 }
 
 function collectBillingNumbersFromRows(rows) {
+  // gathers unique billing numbers + tracks malformed/duplicate rows
   const seen = new Set();
   const billingNumbers = [];
   const unknownEntries = [];
@@ -612,6 +653,7 @@ function createLookupRequestId(prefix = 'lookup') {
 }
 
 function waitForLookupFinished(timeoutMs = 90000, expectedRequestId = '') {
+  // wait for LOOKUP_FINISHED message matching this request id
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       chrome.runtime.onMessage.removeListener(listener);
@@ -643,6 +685,7 @@ function isRetryableLookupError(error) {
 }
 
 async function runLookupForBillingNumber(tabId, billingNumber) {
+  // batch helper w retry for recoverable portal glitches
   const attempts = [40000, 65000];
   let lastError = null;
 
@@ -679,6 +722,7 @@ async function runLookupForBillingNumber(tabId, billingNumber) {
 }
 
 function findBillingMatchesFromRows(rows, targetValue) {
+  // if target blank => all rows, else only matching col A targets
   const parsedTargets = parseTargetValues(targetValue);
   if (!parsedTargets.length) {
     return rows
@@ -717,6 +761,7 @@ function findBillingMatchesFromRows(rows, targetValue) {
 }
 
 async function pullBillingNumberForTarget(direction = 1) {
+  // cycles next/previous through matched billing numbers
   ensureSessionRows();
   const targetValue = getTargetValue();
   const parsedTargets = parseTargetValues(targetValue);
@@ -761,6 +806,7 @@ async function pullBillingNumberForTarget(direction = 1) {
 }
 
 form.addEventListener('submit', async (event) => {
+  // single lookup submit path
   event.preventDefault();
   if (isBatchRunning || isSingleLookupRunning) return;
   const billingNumber = input.value.trim();
@@ -808,6 +854,7 @@ form.addEventListener('submit', async (event) => {
 });
 
 pullPreviousBillingNumberButton.addEventListener('click', async () => {
+  // loads previous billing number from current session cycle
   if (isBatchRunning || isSingleLookupRunning) return;
   setActionButtonsDisabled(true);
   setStatus('Reading pasted rows...');
@@ -826,6 +873,7 @@ pullPreviousBillingNumberButton.addEventListener('click', async () => {
 });
 
 pullNextBillingNumberButton.addEventListener('click', async () => {
+  // loads next billing number then auto-starts lookup after tiny delay
   if (isBatchRunning || isSingleLookupRunning) return;
   setActionButtonsDisabled(true);
   setStatus('Reading pasted rows...');
@@ -851,6 +899,7 @@ pullNextBillingNumberButton.addEventListener('click', async () => {
 });
 
 dialButton.addEventListener('click', async () => {
+  // dial action only allowed once a lookup has rendered
   if (isBatchRunning || isSingleLookupRunning || !hasDisplayedLookupResult) return;
   setActionButtonsDisabled(true);
   setStatus('Opening Sharpen and filling the dial field...');
@@ -868,6 +917,7 @@ dialButton.addEventListener('click', async () => {
 });
 
 saveDispositionButton.addEventListener('click', async () => {
+  // writes disposition log + refreshes its csv download
   if (isBatchRunning) return;
   setActionButtonsDisabled(true);
   setStatus('Saving disposition...');
@@ -881,6 +931,7 @@ saveDispositionButton.addEventListener('click', async () => {
 });
 
 runRenewalAutocheckButton.addEventListener('click', async () => {
+  // starts background renewal radar over pasted billing numbers
   if (isBatchRunning) return;
   isBatchRunning = true;
   setActionButtonsDisabled(true);
@@ -1004,6 +1055,7 @@ runRenewalAutocheckButton.addEventListener('click', async () => {
 });
 
 stopRenewalAutocheckButton.addEventListener('click', async () => {
+  // requests graceful stop after current lookup completes
   if (!isBatchRunning) return;
   stopRenewalAutocheckButton.disabled = true;
   setStatus('Stopping Renewal Radar after the current lookup finishes...');
@@ -1015,6 +1067,7 @@ stopRenewalAutocheckButton.addEventListener('click', async () => {
 });
 
 pastedRowsInput.addEventListener('input', () => {
+  // debounce local persistence while user is still pasting/editing
   if (pastedRowsPersistTimer) {
     clearTimeout(pastedRowsPersistTimer);
   }
@@ -1028,6 +1081,7 @@ pastedRowsInput.addEventListener('input', () => {
 
 if (openSessionSetupButton) {
   openSessionSetupButton.addEventListener('click', () => {
+    // reopen setup panel to edit target/pasted rows
     setSessionSetupOpen(true);
   });
 }
@@ -1048,6 +1102,7 @@ if (startSessionButton) {
 
 if (closeSessionSetupButton) {
   closeSessionSetupButton.addEventListener('click', () => {
+    // close setup and return to compact controls view
     setSessionSetupOpen(false);
   });
 }
@@ -1056,11 +1111,13 @@ restoreTargetValue().catch(() => {
   // Best effort restore for target input.
 });
 
+// default boot state before any restore kicks in
 setSessionReady(false);
 setResultsOpen(false);
 setSessionSetupOpen(true);
 
 chrome.storage.local.get(['excelPastedRows', SESSION_POSITION_KEY]).then((stored) => {
+  // restore pasted rows + session index from prior popup sessions
   const restoredRows = String(stored.excelPastedRows || '').trim();
   if (!restoredRows) {
     setSessionSetupOpen(true);
@@ -1079,6 +1136,7 @@ chrome.storage.local.get(['excelPastedRows', SESSION_POSITION_KEY]).then((stored
 });
 
 chrome.storage.session.get(['lastResult', LAST_BATCH_KEY, LAST_VIEW_MODE_KEY, 'renewalRadarState']).then((stored) => {
+  // restore most relevant last view (live radar, batch, or single)
   const mode = stored[LAST_VIEW_MODE_KEY];
   const lastBatch = stored[LAST_BATCH_KEY];
   const lastResult = stored.lastResult;
@@ -1115,6 +1173,7 @@ chrome.storage.session.get(['lastResult', LAST_BATCH_KEY, LAST_VIEW_MODE_KEY, 'r
 });
 
 chrome.runtime.onMessage.addListener((message) => {
+  // reacts to background push updates for radar/single lookup finishes
   if (message.type === 'RADAR_UPDATED') {
     const radarState = message.state || {};
     isBatchRunning = radarState.status === 'running' || radarState.status === 'stopping';
