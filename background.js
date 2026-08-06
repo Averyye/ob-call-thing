@@ -8,6 +8,8 @@ const SEARCH_BOOTSTRAP_DELAY_MS = 300;
 const DEFAULT_BOOTSTRAP_DELAY_MS = 40; // by Mo and Avery
 const MAX_BOOTSTRAP_RETRIES = 8;
 const RADAR_STATE_KEY = 'renewalRadarState';
+const LOOKUP_HISTORY_KEY = 'lookupHistory';
+const MAX_LOOKUP_HISTORY_ITEMS = 5;
 let nextLookupId = 1;
 const lookupCompletionWaiters = new Map();
 let radarRun = null;
@@ -41,6 +43,17 @@ function toRadarEntry(data, billingNumber) {
     billingNumber,
     customerName: String(data?.customerName || '').trim(),
     accountStatus: String(data?.accountStatus || '').trim()
+  };
+}
+
+function toLookupHistoryEntry(data) {
+  return {
+    billingNumber: String(data?.billingNumber || data?.customerNumber || '').trim(),
+    customerName: String(data?.customerName || '').trim(),
+    accountStatus: String(data?.accountStatus || '').trim(),
+    renewalStatus: String(data?.renewalStatus || '').trim(),
+    currentContractEnd: String(data?.currentContractEnd || data?.renewalEnd || '').trim(),
+    updatedAt: Date.now()
   };
 }
 // slop slop slop sahur
@@ -585,7 +598,13 @@ async function finish(tabId, result, expectedLookupId = '') {
   lookups.delete(tabId);
 
   if (result.ok) {
-    await chrome.storage.session.set({ lastResult: result.data });
+    const historyEntry = toLookupHistoryEntry(result.data);
+    const { lookupHistory = [] } = await chrome.storage.session.get(LOOKUP_HISTORY_KEY);
+    const nextHistory = [historyEntry, ...lookupHistory.filter((entry) => entry.billingNumber !== historyEntry.billingNumber)].slice(0, MAX_LOOKUP_HISTORY_ITEMS);
+    await chrome.storage.session.set({
+      lastResult: result.data,
+      [LOOKUP_HISTORY_KEY]: nextHistory
+    });
   }
 
   const waiter = lookupCompletionWaiters.get(state.lookupId);

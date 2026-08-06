@@ -328,6 +328,47 @@ body.setup-open #status-inline {
   padding-top: 6px;
 }
 
+.recent-searches {
+  margin-top: 6px;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+
+.recent-searches h3 {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.recent-searches-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recent-searches-list li {
+  padding: 6px 0;
+  border-bottom: 1px solid #e8edf0;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.recent-searches-list li:last-child {
+  border-bottom: 0;
+}
+
+.recent-searches-entry-title {
+  font-weight: 700;
+}
+
+.recent-searches-entry-meta {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .call-template-panel h3 {
   margin: 0 0 6px;
   color: var(--muted);
