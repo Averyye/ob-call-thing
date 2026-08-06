@@ -1,0 +1,77 @@
+name: Build Extension
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate manifest and required files
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path('.')
+          manifest_path = root / 'manifest.json'
+          if not manifest_path.exists():
+              raise SystemExit('manifest.json is missing.')
+
+          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+
+          required_fields = ['manifest_version', 'name', 'version', 'background', 'action']
+          missing = [field for field in required_fields if field not in manifest]
+          if missing:
+              raise SystemExit(f"manifest.json missing fields: {', '.join(missing)}")
+
+          required_files = [
+              'background.js',
+              'content.js',
+              'popup.html',
+              'popup.js',
+              'popup.css',
+              'manifest.json',
+              'icons/icon16.png',
+              'icons/icon32.png',
+              'icons/icon48.png',
+              'icons/icon128.png'
+          ]
+
+          missing_files = [path for path in required_files if not (root / path).exists()]
+          if missing_files:
+              raise SystemExit('Missing required files:\n' + '\n'.join(missing_files))
+
+          print('Manifest and required files validated.')
+          PY
+
+      - name: Build extension zip
+        shell: bash
+        run: |
+          mkdir -p dist
+          zip -r dist/ob-call-thing-${{ github.sha }}.zip \
+            manifest.json \
+            background.js \
+            content.js \
+            popup.html \
+            popup.js \
+            popup.css \
+            icons
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-build-${{ github.sha }}
+          path: dist/*.zip
+          if-no-files-found: error
