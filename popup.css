@@ -331,7 +331,7 @@ body.setup-open #status-inline {
 }
 
 #call-template {
-  min-height: 145px;
+  min-height: 110px;
   resize: vertical;
   font-family: 'Trebuchet MS', sans-serif;
   font-size: 13px;

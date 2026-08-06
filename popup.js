@@ -50,6 +50,7 @@ const SESSION_POSITION_KEY = 'sessionRowPosition';
 const LAST_BATCH_KEY = 'lastRenewalRadarResult';
 const LAST_VIEW_MODE_KEY = 'lastDisplayMode';
 const DISPOSITION_LOG_KEY = 'dispositionLogs';
+const SHARPEN_CALL_ID_PREFIX_REGEX = /^id\s*:\s*/i;
 const DISPOSITION_OPTIONS = [
   'voicemail',
   'no voicemail',
@@ -149,7 +150,7 @@ function buildCallTemplate(data = {}, callId = '') {
   const callerName = String(data?.customerName || '').trim();
   const callFrom = String(data?.phone || '').trim();
   const accountNumber = String(data?.billingNumber || data?.customerNumber || '').trim();
-  const resolvedCallId = String(callId || data?.callId || '').trim();
+  const resolvedCallId = normalizeSharpenCallId(callId || data?.callId || '');
 
   return [
     `Caller Name: ${callerName}`,
@@ -165,6 +166,25 @@ function populateCallTemplate(data = {}, callId = '') {
   if (!callTemplate) return;
   callTemplate.value = buildCallTemplate(data, callId);
   schedulePopupResizeSync();
+}
+
+function normalizeSharpenCallId(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  return raw.replace(SHARPEN_CALL_ID_PREFIX_REGEX, '').trim();
+}
+
+async function persistCallIdForLatestLookup(callId) {
+  const normalizedCallId = normalizeSharpenCallId(callId);
+  if (!normalizedCallId) return false;
+
+  const { lastResult } = await chrome.storage.session.get('lastResult');
+  if (!lastResult) return false;
+
+  const updatedLastResult = { ...lastResult, callId: normalizedCallId };
+  await chrome.storage.session.set({ lastResult: updatedLastResult });
+  populateCallTemplate(updatedLastResult, normalizedCallId);
+  return true;
 }
 
 async function copyCallTemplateToClipboard() {
@@ -621,7 +641,10 @@ async function dialLatestCustomer() {
     throw new Error(response?.error || 'Dial failed.');
   }
 
-  return response;
+  return {
+    ...response,
+    callId: normalizeSharpenCallId(response.callId)
+  };
 }
 
 let flashTimer = null;
@@ -1002,11 +1025,17 @@ dialButton.addEventListener('click', async () => {
   // dial action only allowed once a lookup has rendered
   if (isBatchRunning || isSingleLookupRunning || !hasDisplayedLookupResult) return;
   setActionButtonsDisabled(true);
-  setStatus('Opening Sharpen and filling the dial field...');
+  setStatus('Opening Sharpen, dialing, and capturing Call ID...');
   let dialSucceeded = false;
   try {
-    await dialLatestCustomer();
-    setStatus('Sharpen tab focused and dial field populated. Choose a disposition and save it.', 'success');
+    const dialResponse = await dialLatestCustomer();
+    const capturedCallId = normalizeSharpenCallId(dialResponse?.callId);
+    if (capturedCallId) {
+      await persistCallIdForLatestLookup(capturedCallId);
+      setStatus(`Sharpen dialed and Call ID captured: ${capturedCallId}. Choose a disposition and save it.`, 'success');
+    } else {
+      setStatus('Sharpen dialed, but Call ID could not be read after 5 seconds. Choose a disposition and save it.', 'warn');
+    }
     dialSucceeded = true;
   } catch (error) {
     setStatus(error.message || 'Dial failed.', 'error');
@@ -1307,7 +1336,7 @@ chrome.runtime.onMessage.addListener((message) => {
     persistDisplayMode('single');
     hideRenewedBatchResults();
     render(message.data);
-    populateCallTemplate(message.data, message.requestId);
+    populateCallTemplate(message.data);
     hasDisplayedLookupResult = true;
     flashRenewalState(message.data?.renewalStatus);
     setStatus('Lookup complete.', 'success');

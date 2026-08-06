@@ -3,6 +3,7 @@ const lookups = new Map();
 const PORTAL_SEARCH_URL = 'https://affordable-ep.esgglobal.net/enterpriseportal/home/customers/customerSearch';
 const SHARPEN_DASHBOARD_URL = 'https://app.iz1.sharpen.cx/fathomQ/dashboard/';
 const SHARPEN_ORIGIN = 'https://app.iz1.sharpen.cx/';
+const SHARPEN_CALL_ID_CAPTURE_DELAY_MS = 5000;
 const SEARCH_BOOTSTRAP_DELAY_MS = 300;
 const DEFAULT_BOOTSTRAP_DELAY_MS = 40; // by Mo and Avery
 const MAX_BOOTSTRAP_RETRIES = 8;
@@ -313,6 +314,35 @@ async function injectDialValueIntoSharpen(tabId, dialValue, customer = {}) {
   if (result?.result?.ok) return;
 
   throw new Error('Could not find the Sharpen dial field. Keep Sharpen logged in and on the dashboard, then try Dial again.');
+}
+
+async function captureSharpenCallId(tabId) {
+  // best-effort scrape of Sharpen's call ID label (e.g., "ID: 241013341")
+  const [result] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+      const visible = (element) => Boolean(element && element.getClientRects().length);
+      const extractFromText = (value) => {
+        const match = normalize(value).match(/\bID\s*:\s*([A-Za-z0-9-]+)/i);
+        return match ? String(match[1] || '').trim() : '';
+      };
+
+      const directLabels = [...document.querySelectorAll('body *')]
+        .filter((element) => visible(element))
+        .map((element) => normalize(element.textContent))
+        .filter((text) => /^ID\s*:/i.test(text));
+
+      for (const text of directLabels) {
+        const callId = extractFromText(text);
+        if (callId) return { callId };
+      }
+
+      return { callId: extractFromText(document.body?.innerText || '') };
+    }
+  });
+
+  return String(result?.result?.callId || '').trim();
 }
 
 function scheduleBootstrap(tabId, delayMs, expectedLookupId = '') {
@@ -639,8 +669,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       await focusTab(sharpenTab);
       await waitForTabComplete(sharpenTab.id, 25000);
       await injectDialValueIntoSharpen(sharpenTab.id, dialValue, message.customer || {});
+      await new Promise((resolve) => setTimeout(resolve, SHARPEN_CALL_ID_CAPTURE_DELAY_MS));
+      const callId = await captureSharpenCallId(sharpenTab.id).catch(() => '');
 
-      sendResponse({ ok: true });
+      sendResponse({ ok: true, callId });
     }).catch((error) => {
       sendResponse({ ok: false, error: error.message || 'Dial failed.' });
     });
