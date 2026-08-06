@@ -44,6 +44,7 @@ let pastedRowsPersistTimer = null;
 let nextLookupRequestId = 1;
 let activeSingleLookupRequestId = '';
 let resizeSyncFrame = 0;
+let isRestoringPopupState = true;
 const COMPACT_POPUP_WIDTH_PX = 430;
 const SETUP_POPUP_WIDTH_PX = 520;
 const RESULTS_POPUP_WIDTH_PX = 780;
@@ -90,6 +91,7 @@ function syncPopupHeightNow() {
 }
 
 function persistPopupView(mode) {
+  if (isRestoringPopupState) return;
   chrome.storage.session.set({ [LAST_POPUP_VIEW_KEY]: mode }).catch(() => {});
 }
 
@@ -1377,6 +1379,7 @@ Promise.all([
   chrome.storage.session.get(['lastResult', LAST_BATCH_KEY, LAST_VIEW_MODE_KEY, LAST_POPUP_VIEW_KEY, LOOKUP_HISTORY_KEY, 'renewalRadarState'])
 ]).then(([localStored, sessionStored]) => {
   // restore pasted rows, last popup panel, and last result set in a stable order
+  let restoredViewWasHandled = false;
   const restoredRows = String(localStored.excelPastedRows || '').trim();
   if (restoredRows) {
     pastedRowsInput.value = restoredRows;
@@ -1400,37 +1403,31 @@ Promise.all([
     isBatchRunning = radarState.status === 'running' || radarState.status === 'stopping';
     renderRenewalRadarState(radarState);
     setActionButtonsDisabled(false);
-    return;
-  }
-
-  if (uiState === 'loading') {
+    restoredViewWasHandled = true;
+  } else if (uiState === 'loading') {
     setLookupLoading(true);
     setStatus('Working in the ESG portal tab...');
-    return;
-  }
-
-  if (uiState === 'setup') {
+    restoredViewWasHandled = true;
+  } else if (uiState === 'setup') {
     setSessionSetupOpen(true);
     if (!restoredRows) {
       setStatus('Paste rows to start this session.', '');
     }
-    return;
-  }
-
-  if (uiState === 'results') {
-    if (restoreResultsView(mode, lastBatch, lastResult)) {
-      return;
-    }
+    restoredViewWasHandled = true;
+  } else if (uiState === 'results') {
+    restoredViewWasHandled = restoreResultsView(mode, lastBatch, lastResult);
   } else if (uiState === 'compact') {
     setSessionSetupOpen(false);
-    return;
+    restoredViewWasHandled = true;
   }
 
-  if (restoreResultsView(mode, lastBatch, lastResult)) {
-    return;
+  if (!restoredViewWasHandled) {
+    restoredViewWasHandled = restoreResultsView(mode, lastBatch, lastResult);
   }
 
   setSessionSetupOpen(false);
+  isRestoringPopupState = false;
+  persistCurrentPopupView();
 });
 
 chrome.runtime.onMessage.addListener((message) => {
