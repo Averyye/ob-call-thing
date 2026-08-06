@@ -42,6 +42,9 @@ let pastedRowsPersistTimer = null;
 let nextLookupRequestId = 1;
 let activeSingleLookupRequestId = '';
 let resizeSyncFrame = 0;
+const COMPACT_POPUP_WIDTH_PX = 430;
+const SETUP_POPUP_WIDTH_PX = 520;
+const RESULTS_POPUP_WIDTH_PX = 780;
 const NEXT_BILLING_AUTO_LOOKUP_DELAY_MS = 200;
 const SESSION_POSITION_KEY = 'sessionRowPosition';
 const LAST_BATCH_KEY = 'lastRenewalRadarResult';
@@ -57,12 +60,22 @@ const DISPOSITION_OPTIONS = [
 
 function syncPopupHeightNow() {
   // force popup frame to track whichever panel is currently visible
+  const nextWidth = popupBody.classList.contains('lookup-loading')
+    ? COMPACT_POPUP_WIDTH_PX
+    : popupBody.classList.contains('setup-open')
+      ? SETUP_POPUP_WIDTH_PX
+      : popupBody.classList.contains('results-open')
+        ? RESULTS_POPUP_WIDTH_PX
+        : COMPACT_POPUP_WIDTH_PX;
+
   const nextHeight = Math.max(
     document.documentElement.scrollHeight,
     document.body.scrollHeight,
     Math.ceil((shell?.getBoundingClientRect().height || 0) + 20)
   );
 
+  document.documentElement.style.width = `${nextWidth}px`;
+  document.body.style.width = `${nextWidth}px`;
   document.documentElement.style.height = `${nextHeight}px`;
   document.body.style.height = `${nextHeight}px`;
 }
