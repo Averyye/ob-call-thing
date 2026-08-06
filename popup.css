@@ -13,6 +13,11 @@
 
 * { box-sizing: border-box; }
 
+html,
+body {
+  overflow-x: hidden;
+}
+
 body {
   /* default compact popup look */
   width: 430px;
@@ -25,7 +30,7 @@ body {
 
 body.results-open {
   /* results view expands to hold lookup + template comfortably */
-  width: 832px;
+  width: 820px;
 }
 
 body.setup-open {
