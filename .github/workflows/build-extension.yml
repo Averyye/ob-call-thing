@@ -3,10 +3,10 @@ name: Build Extension
 on:
   push:
     branches:
-      - "**"
+      - the-actual-main
   pull_request:
     branches:
-      - main
+      - the-actual-main
   workflow_dispatch:
 
 jobs:
