@@ -13,9 +13,14 @@
 
 * { box-sizing: border-box; }
 
+html,
+body {
+  overflow: hidden;
+}
+
 body {
   /* default compact popup look */
-  width: 430px;
+  width: 820px;
   margin: 0;
   color: var(--ink);
   background: linear-gradient(145deg, #f7fafb 0%, var(--wash) 100%);
@@ -24,16 +29,16 @@ body {
 }
 
 body.results-open {
-  /* widen when results panel is shown */
-  width: 860px;
+  /* keep one stable width to avoid left/right jump */
+  width: 820px;
 }
 
 body.setup-open {
-  width: 560px;
+  width: 820px;
 }
 
 body.lookup-loading {
-  width: 430px;
+  width: 820px;
 }
 
 body.renewal-state-green {
@@ -44,7 +49,7 @@ body.renewal-state-red {
   background: linear-gradient(145deg, #ffdede 0%, #ffc8c8 100%);
 }
 
-.shell { padding: 8px; }
+.shell { padding: 6px; }
 
 .lookup-loading-screen {
   /* centered loading overlay content */
@@ -99,7 +104,7 @@ body.lookup-loading .layout {
 }
 
 .layout.results-open {
-  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-columns: minmax(0, 1fr) 330px;
 }
 /* by Mo and Avery */
 
@@ -124,8 +129,8 @@ body.lookup-loading .layout {
 .layout.results-open .results-panel {
   /* reveal right result card with slide-in */
   display: block;
-  width: 360px;
-  max-width: 360px;
+  width: 330px;
+  max-width: 330px;
   padding: 8px;
   border-width: 1px;
   animation: panelSlideIn .26s ease-out both;
@@ -318,9 +323,9 @@ body.setup-open #status-inline {
 }
 
 .call-template-panel {
-  margin-top: 8px;
+  margin-top: 6px;
   border-top: 1px solid var(--line);
-  padding-top: 8px;
+  padding-top: 6px;
 }
 
 .call-template-panel h3 {
@@ -331,7 +336,7 @@ body.setup-open #status-inline {
 }
 
 #call-template {
-  min-height: 130px;
+  min-height: 96px;
   resize: vertical;
   font-family: 'Trebuchet MS', sans-serif;
   font-size: 12px;
@@ -448,13 +453,13 @@ body.setup-open #status-inline {
 
 .results {
   /* scroll area for result rows */
-  margin-top: 8px;
+  margin-top: 6px;
   border-top: 1px solid var(--line);
-  padding-top: 8px;
-  max-height: 420px;
+  padding-top: 6px;
+  max-height: 300px;
   overflow-y: auto;
 }
-.result-row { display: flex; justify-content: space-between; gap: 16px; padding: 7px 0; border-bottom: 1px solid #e8edf0; }
+.result-row { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px solid #e8edf0; }
 .result-label { color: var(--muted); }
 
 .result-row-enter {
@@ -467,8 +472,8 @@ body.setup-open #status-inline {
 }
 
 .result-row-status {
-  margin: 4px 0;
-  padding: 8px 10px;
+  margin: 3px 0;
+  padding: 6px 8px;
   border-radius: 6px;
   border: 1px solid #d7dde4;
 }
