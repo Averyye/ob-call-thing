@@ -44,7 +44,7 @@ let activeSingleLookupRequestId = '';
 let resizeSyncFrame = 0;
 const COMPACT_POPUP_WIDTH_PX = 430;
 const SETUP_POPUP_WIDTH_PX = 520;
-const RESULTS_POPUP_WIDTH_PX = 900;
+const RESULTS_POPUP_WIDTH_PX = 760;
 const NEXT_BILLING_AUTO_LOOKUP_DELAY_MS = 200;
 const SESSION_POSITION_KEY = 'sessionRowPosition';
 const LAST_BATCH_KEY = 'lastRenewalRadarResult';
@@ -68,6 +68,10 @@ function syncPopupHeightNow() {
       : popupBody.classList.contains('results-open')
         ? RESULTS_POPUP_WIDTH_PX
         : COMPACT_POPUP_WIDTH_PX;
+
+  // Reset explicit height before measuring so popup can shrink after larger prior views.
+  document.documentElement.style.height = 'auto';
+  document.body.style.height = 'auto';
 
   const nextHeight = Math.max(
     document.documentElement.scrollHeight,
