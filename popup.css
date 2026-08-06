@@ -25,7 +25,7 @@ body {
 
 body.results-open {
   /* results view expands to hold lookup + template comfortably */
-  width: 1000px;
+  width: 832px;
 }
 
 body.setup-open {
@@ -99,7 +99,7 @@ body.lookup-loading .layout {
 }
 
 .layout.results-open {
-  grid-template-columns: 430px 380px;
+  grid-template-columns: 430px 320px;
 }
 /* by Mo and Avery */
 
@@ -124,8 +124,8 @@ body.lookup-loading .layout {
 .layout.results-open .results-panel {
   /* reveal right result card with slide-in */
   display: block;
-  width: 380px;
-  max-width: 380px;
+  width: 320px;
+  max-width: 320px;
   padding: 8px;
   border-width: 1px;
   animation: panelSlideIn .26s ease-out both;
