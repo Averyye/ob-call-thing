@@ -25,7 +25,7 @@ body {
 
 body.results-open {
   /* results view expands to hold lookup + template comfortably */
-  width: 760px;
+  width: 832px;
 }
 
 body.setup-open {
@@ -99,7 +99,7 @@ body.lookup-loading .layout {
 }
 
 .layout.results-open {
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: 430px 380px;
 }
 /* by Mo and Avery */
 
@@ -124,45 +124,11 @@ body.lookup-loading .layout {
 .layout.results-open .results-panel {
   /* reveal right result card with slide-in */
   display: block;
-  width: auto;
-  max-width: none;
+  width: 380px;
+  max-width: 380px;
   padding: 8px;
   border-width: 1px;
   animation: panelSlideIn .26s ease-out both;
-}
-
-body.results-open .controls-panel {
-  padding: 6px;
-  font-size: 11px;
-}
-
-body.results-open .controls-panel h1 {
-  font-size: 14px;
-}
-
-body.results-open .controls-panel .intro,
-body.results-open .controls-panel .pin-hint {
-  display: none;
-}
-
-body.results-open .controls-panel label {
-  margin-bottom: 2px;
-  font-size: 11px;
-}
-
-body.results-open .controls-panel input,
-body.results-open .controls-panel button {
-  padding: 6px 7px;
-  font-size: 11px;
-}
-
-body.results-open .controls-panel .row-nav-buttons {
-  gap: 4px;
-}
-
-body.results-open .controls-panel .session-ready-badge {
-  font-size: 10px;
-  padding: 4px 7px;
 }
 
 @keyframes panelSlideIn {
