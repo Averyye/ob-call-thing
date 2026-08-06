@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Telephone Energy Targeting Optimizer",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Look up customer contact, contract, renewal, and billing details in the signed-in ESG portal.",
   "permissions": ["activeTab", "tabs", "storage", "scripting", "downloads"],
   "host_permissions": [
