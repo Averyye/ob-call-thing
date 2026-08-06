@@ -49,6 +49,7 @@ const NEXT_BILLING_AUTO_LOOKUP_DELAY_MS = 200;
 const SESSION_POSITION_KEY = 'sessionRowPosition';
 const LAST_BATCH_KEY = 'lastRenewalRadarResult';
 const LAST_VIEW_MODE_KEY = 'lastDisplayMode';
+const LAST_POPUP_VIEW_KEY = 'lastPopupView';
 const DISPOSITION_LOG_KEY = 'dispositionLogs';
 const SHARPEN_CALL_ID_PREFIX_REGEX = /^id\s*:\s*/i;
 const DISPOSITION_OPTIONS = [
@@ -85,6 +86,21 @@ function syncPopupHeightNow() {
   document.body.style.height = `${nextHeight}px`;
 }
 
+function persistPopupView(mode) {
+  chrome.storage.session.set({ [LAST_POPUP_VIEW_KEY]: mode }).catch(() => {});
+}
+
+function getPopupViewMode() {
+  if (popupBody.classList.contains('lookup-loading')) return 'loading';
+  if (popupBody.classList.contains('setup-open')) return 'setup';
+  if (popupBody.classList.contains('results-open')) return 'results';
+  return 'compact';
+}
+
+function persistCurrentPopupView() {
+  persistPopupView(getPopupViewMode());
+}
+
 function schedulePopupResizeSync() {
   // bunch ui updates can fire in one tick; coalesce into one resize pass
   if (resizeSyncFrame) cancelAnimationFrame(resizeSyncFrame);
@@ -98,6 +114,11 @@ function setResultsOpen(isOpen) {
   // switches compact vs split layout mode
   popupBody.classList.toggle('results-open', isOpen);
   layout.classList.toggle('results-open', isOpen);
+  if (isOpen) {
+    persistPopupView('results');
+  } else {
+    persistPopupView('compact');
+  }
   schedulePopupResizeSync();
 }
 
@@ -125,6 +146,7 @@ function setLookupLoading(isLoading) {
   // fullscreen loading state while lookup runs
   popupBody.classList.toggle('lookup-loading', isLoading);
   lookupLoadingScreen?.setAttribute('aria-hidden', String(!isLoading));
+  persistPopupView(isLoading ? 'loading' : 'compact');
   schedulePopupResizeSync();
 }
 
@@ -146,7 +168,36 @@ function setSessionSetupOpen(isOpen) {
     setResultsOpen(false);
   }
   popupBody.classList.toggle('setup-open', isOpen);
+  persistPopupView(isOpen ? 'setup' : 'compact');
   schedulePopupResizeSync();
+}
+
+function restoreResultsView(mode, lastBatch, lastResult) {
+  if (mode === 'batch' && lastBatch) {
+    results.hidden = true;
+    renderRenewedBatchResults(
+      lastBatch.renewedEntries || [],
+      Number(lastBatch.notRenewedCount || 0),
+      lastBatch.unknownEntries || [],
+      Number(lastBatch.totalCount || 0),
+      Number(lastBatch.retryRecoveredCount || 0)
+    );
+    setStatus('Last Renewal Radar results restored.', 'success');
+    return true;
+  }
+
+  if (lastResult) {
+    hideRenewedBatchResults();
+    render(lastResult);
+    populateCallTemplate(lastResult);
+    hasDisplayedLookupResult = true;
+    flashRenewalState(lastResult.renewalStatus);
+    setStatus('Last lookup complete.', 'success');
+    setActionButtonsDisabled(false);
+    return true;
+  }
+
+  return false;
 }
 
 function buildCallTemplate(data = {}, callId = '') {
@@ -1247,7 +1298,7 @@ restoreTargetValue().catch(() => {
 // default boot state before any restore kicks in
 setSessionReady(false);
 setResultsOpen(false);
-setSessionSetupOpen(true);
+setSessionSetupOpen(false);
 populateCallTemplate();
 schedulePopupResizeSync();
 
@@ -1268,31 +1319,29 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-chrome.storage.local.get(['excelPastedRows', SESSION_POSITION_KEY]).then((stored) => {
-  // restore pasted rows + session index from prior popup sessions
-  const restoredRows = String(stored.excelPastedRows || '').trim();
-  if (!restoredRows) {
-    setSessionSetupOpen(true);
-    setStatus('Paste rows to start this session.', '');
-    return;
+window.addEventListener('pagehide', persistCurrentPopupView);
+window.addEventListener('beforeunload', persistCurrentPopupView);
+
+Promise.all([
+  chrome.storage.local.get(['excelPastedRows', SESSION_POSITION_KEY]),
+  chrome.storage.session.get(['lastResult', LAST_BATCH_KEY, LAST_VIEW_MODE_KEY, LAST_POPUP_VIEW_KEY, 'renewalRadarState'])
+]).then(([localStored, sessionStored]) => {
+  // restore pasted rows, last popup panel, and last result set in a stable order
+  const restoredRows = String(localStored.excelPastedRows || '').trim();
+  if (restoredRows) {
+    pastedRowsInput.value = restoredRows;
+    setSessionReady(true);
+    const savedPosition = localStored[SESSION_POSITION_KEY];
+    if (savedPosition && savedPosition.position && savedPosition.total) {
+      setSessionPositionBadge(savedPosition.position, savedPosition.total);
+    }
   }
 
-  pastedRowsInput.value = restoredRows;
-  setSessionReady(true);
-  setSessionSetupOpen(false);
-
-  const savedPosition = stored[SESSION_POSITION_KEY];
-  if (savedPosition && savedPosition.position && savedPosition.total) {
-    setSessionPositionBadge(savedPosition.position, savedPosition.total);
-  }
-});
-
-chrome.storage.session.get(['lastResult', LAST_BATCH_KEY, LAST_VIEW_MODE_KEY, 'renewalRadarState']).then((stored) => {
-  // restore most relevant last view (live radar, batch, or single)
-  const mode = stored[LAST_VIEW_MODE_KEY];
-  const lastBatch = stored[LAST_BATCH_KEY];
-  const lastResult = stored.lastResult;
-  const radarState = stored.renewalRadarState;
+  const uiState = sessionStored[LAST_POPUP_VIEW_KEY];
+  const mode = sessionStored[LAST_VIEW_MODE_KEY];
+  const lastBatch = sessionStored[LAST_BATCH_KEY];
+  const lastResult = sessionStored.lastResult;
+  const radarState = sessionStored.renewalRadarState;
 
   if (radarState) {
     isBatchRunning = radarState.status === 'running' || radarState.status === 'stopping';
@@ -1301,28 +1350,34 @@ chrome.storage.session.get(['lastResult', LAST_BATCH_KEY, LAST_VIEW_MODE_KEY, 'r
     return;
   }
 
-  if (mode === 'batch' && lastBatch) {
-    results.hidden = true;
-    renderRenewedBatchResults(
-      lastBatch.renewedEntries || [],
-      Number(lastBatch.notRenewedCount || 0),
-      lastBatch.unknownEntries || [],
-      Number(lastBatch.totalCount || 0),
-      Number(lastBatch.retryRecoveredCount || 0)
-    );
-    setStatus('Last Renewal Radar results restored.', 'success');
+  if (uiState === 'loading') {
+    setLookupLoading(true);
+    setStatus('Working in the ESG portal tab...');
     return;
   }
 
-  if (lastResult) {
-    hideRenewedBatchResults();
-    render(lastResult);
-    populateCallTemplate(lastResult);
-    hasDisplayedLookupResult = true;
-    flashRenewalState(lastResult.renewalStatus);
-    setStatus('Last lookup complete.', 'success');
-    setActionButtonsDisabled(false);
+  if (uiState === 'setup') {
+    setSessionSetupOpen(true);
+    if (!restoredRows) {
+      setStatus('Paste rows to start this session.', '');
+    }
+    return;
   }
+
+  if (uiState === 'results') {
+    if (restoreResultsView(mode, lastBatch, lastResult)) {
+      return;
+    }
+  } else if (uiState === 'compact') {
+    setSessionSetupOpen(false);
+    return;
+  }
+
+  if (restoreResultsView(mode, lastBatch, lastResult)) {
+    return;
+  }
+
+  setSessionSetupOpen(false);
 });
 
 chrome.runtime.onMessage.addListener((message) => {
