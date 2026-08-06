@@ -13,14 +13,9 @@
 
 * { box-sizing: border-box; }
 
-html,
-body {
-  overflow: hidden;
-}
-
 body {
   /* default compact popup look */
-  width: 820px;
+  width: 430px;
   margin: 0;
   color: var(--ink);
   background: linear-gradient(145deg, #f7fafb 0%, var(--wash) 100%);
@@ -29,16 +24,16 @@ body {
 }
 
 body.results-open {
-  /* keep one stable width to avoid left/right jump */
-  width: 820px;
+  /* results view expands to hold lookup + template comfortably */
+  width: 900px;
 }
 
 body.setup-open {
-  width: 820px;
+  width: 520px;
 }
 
 body.lookup-loading {
-  width: 820px;
+  width: 430px;
 }
 
 body.renewal-state-green {
@@ -104,7 +99,7 @@ body.lookup-loading .layout {
 }
 
 .layout.results-open {
-  grid-template-columns: minmax(0, 1fr) 330px;
+  grid-template-columns: minmax(0, 1fr) 350px;
 }
 /* by Mo and Avery */
 
@@ -129,8 +124,8 @@ body.lookup-loading .layout {
 .layout.results-open .results-panel {
   /* reveal right result card with slide-in */
   display: block;
-  width: 330px;
-  max-width: 330px;
+  width: 350px;
+  max-width: 350px;
   padding: 8px;
   border-width: 1px;
   animation: panelSlideIn .26s ease-out both;
