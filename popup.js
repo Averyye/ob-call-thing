@@ -32,8 +32,6 @@ const renewedSummary = document.querySelector('#renewed-summary');
 const renewedList = document.querySelector('#renewed-list');
 const unknownSummary = document.querySelector('#unknown-summary');
 const unknownList = document.querySelector('#unknown-list');
-const recentSearches = document.querySelector('#recent-searches');
-const recentSearchesList = document.querySelector('#recent-searches-list');
 const callTemplate = document.querySelector('#call-template');
 const copyCallTemplateButton = document.querySelector('#copy-call-template');
 
@@ -53,7 +51,6 @@ const SESSION_POSITION_KEY = 'sessionRowPosition';
 const LAST_BATCH_KEY = 'lastRenewalRadarResult';
 const LAST_VIEW_MODE_KEY = 'lastDisplayMode';
 const LAST_POPUP_VIEW_KEY = 'lastPopupView';
-const LOOKUP_HISTORY_KEY = 'lookupHistory';
 const DISPOSITION_LOG_KEY = 'dispositionLogs';
 const SHARPEN_CALL_ID_PREFIX_REGEX = /^id\s*:\s*/i;
 const DISPOSITION_OPTIONS = [
@@ -203,53 +200,6 @@ function restoreResultsView(mode, lastBatch, lastResult) {
   }
 
   return false;
-}
-
-function formatLookupHistoryEntry(entry) {
-  const billingNumber = String(entry?.billingNumber || '').trim();
-  const customerName = String(entry?.customerName || '').trim();
-  const accountStatus = String(entry?.accountStatus || '').trim();
-  const renewalStatus = String(entry?.renewalStatus || '').trim();
-  const currentContractEnd = String(entry?.currentContractEnd || '').trim();
-  const titleParts = [billingNumber, customerName].filter(Boolean);
-  const metaParts = [accountStatus, renewalStatus, currentContractEnd].filter(Boolean);
-  return {
-    title: titleParts.join(' - ') || 'Unknown lookup',
-    meta: metaParts.join(' • ')
-  };
-}
-
-function renderRecentSearchHistory(historyItems = []) {
-  if (!recentSearches || !recentSearchesList) return;
-  recentSearchesList.replaceChildren();
-
-  const entries = Array.isArray(historyItems) ? historyItems.filter(Boolean) : [];
-  if (!entries.length) {
-    recentSearches.hidden = true;
-    return;
-  }
-
-  for (const entry of entries.slice(0, 5)) {
-    const item = document.createElement('li');
-    const formatted = formatLookupHistoryEntry(entry);
-
-    const title = document.createElement('span');
-    title.className = 'recent-searches-entry-title';
-    title.textContent = formatted.title;
-
-    item.append(title);
-
-    if (formatted.meta) {
-      const meta = document.createElement('span');
-      meta.className = 'recent-searches-entry-meta';
-      meta.textContent = formatted.meta;
-      item.append(meta);
-    }
-
-    recentSearchesList.append(item);
-  }
-
-  recentSearches.hidden = false;
 }
 
 function buildCallTemplate(data = {}, callId = '') {
@@ -1376,7 +1326,7 @@ window.addEventListener('beforeunload', persistCurrentPopupView);
 
 Promise.all([
   chrome.storage.local.get(['excelPastedRows', SESSION_POSITION_KEY]),
-  chrome.storage.session.get(['lastResult', LAST_BATCH_KEY, LAST_VIEW_MODE_KEY, LAST_POPUP_VIEW_KEY, LOOKUP_HISTORY_KEY, 'renewalRadarState'])
+  chrome.storage.session.get(['lastResult', LAST_BATCH_KEY, LAST_VIEW_MODE_KEY, LAST_POPUP_VIEW_KEY, 'renewalRadarState'])
 ]).then(([localStored, sessionStored]) => {
   // restore pasted rows, last popup panel, and last result set in a stable order
   let restoredViewWasHandled = false;
@@ -1394,10 +1344,7 @@ Promise.all([
   const mode = sessionStored[LAST_VIEW_MODE_KEY];
   const lastBatch = sessionStored[LAST_BATCH_KEY];
   const lastResult = sessionStored.lastResult;
-  const lookupHistory = sessionStored[LOOKUP_HISTORY_KEY];
   const radarState = sessionStored.renewalRadarState;
-
-  renderRecentSearchHistory(lookupHistory);
 
   if (radarState) {
     isBatchRunning = radarState.status === 'running' || radarState.status === 'stopping';
@@ -1455,9 +1402,6 @@ chrome.runtime.onMessage.addListener((message) => {
     hasDisplayedLookupResult = true;
     flashRenewalState(message.data?.renewalStatus);
     setStatus('Lookup complete.', 'success');
-    chrome.storage.session.get(LOOKUP_HISTORY_KEY).then((stored) => {
-      renderRecentSearchHistory(stored[LOOKUP_HISTORY_KEY] || []);
-    }).catch(() => {});
   } else {
     hasDisplayedLookupResult = false;
     setStatus(message.error || 'Lookup failed.', 'error');
