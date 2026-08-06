@@ -25,7 +25,7 @@ body {
 
 body.results-open {
   /* results view expands to hold lookup + template comfortably */
-  width: 832px;
+  width: 800px;
 }
 
 body.setup-open {
