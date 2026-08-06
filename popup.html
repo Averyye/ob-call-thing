@@ -69,7 +69,7 @@
         <p class="credit">by Mo and Avery</p>
         <p id="status" class="status" role="status">Ready.</p>
         <section id="results" class="results" aria-live="polite" hidden></section>
-        <section class="disposition-panel disposition-compact" aria-label="Disposition logger">
+        <section class="disposition-panel disposition-compact" aria-label="Disposition logger" hidden>
           <!-- agent picks one outcome and saves to csv -->
           <h3>Disposition</h3>
           <div class="disposition-controls">
@@ -87,7 +87,7 @@
         </section>
         <section class="call-template-panel" aria-label="Call template">
           <h3>Call template</h3>
-          <textarea id="call-template" rows="6" readonly aria-label="Auto-filled call template"></textarea>
+          <textarea id="call-template" rows="10" readonly aria-label="Auto-filled call template"></textarea>
           <button id="copy-call-template" type="button">Copy template</button>
         </section>
         <section id="renewed-results" class="renewed-results" hidden>
@@ -102,7 +102,7 @@
       </section>
     </div>
   </main>
-  <span class="build-version" aria-label="Build version 0.1.8">0.1.8</span> <!-- keep this in sync with manifest.json version on every release/update -->
+  <span class="build-version" aria-label="Build version 0.1.9">0.1.9</span> <!-- keep this in sync with manifest.json version on every release/update -->
   <script src="popup.js"></script>
 </body>
 </html>

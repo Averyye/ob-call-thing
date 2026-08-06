@@ -42,9 +42,9 @@ let pastedRowsPersistTimer = null;
 let nextLookupRequestId = 1;
 let activeSingleLookupRequestId = '';
 let resizeSyncFrame = 0;
-const COMPACT_POPUP_WIDTH_PX = 430;
-const SETUP_POPUP_WIDTH_PX = 520;
-const RESULTS_POPUP_WIDTH_PX = 780;
+const COMPACT_POPUP_WIDTH_PX = 460;
+const SETUP_POPUP_WIDTH_PX = 620;
+const RESULTS_POPUP_WIDTH_PX = 980;
 const NEXT_BILLING_AUTO_LOOKUP_DELAY_MS = 200;
 const SESSION_POSITION_KEY = 'sessionRowPosition';
 const LAST_BATCH_KEY = 'lastRenewalRadarResult';
@@ -157,8 +157,8 @@ function buildCallTemplate(data = {}, callId = '') {
     `Call ID #: ${resolvedCallId}`,
     `Call From: ${callFrom}`,
     `Account #: ${accountNumber}`,
-    'Issue:',
-    'Resolution:'
+    'Issue: Contract expiration',
+    'Resolution: Voicemail'
   ].join('\n');
 }
 
@@ -1032,16 +1032,16 @@ dialButton.addEventListener('click', async () => {
     const capturedCallId = normalizeSharpenCallId(dialResponse?.callId);
     if (capturedCallId) {
       await persistCallIdForLatestLookup(capturedCallId);
-      setStatus(`Sharpen dialed and Call ID captured: ${capturedCallId}. Choose a disposition and save it.`, 'success');
+      setStatus(`Sharpen dialed and Call ID captured: ${capturedCallId}. Review or copy the call template below.`, 'success');
     } else {
-      setStatus('Sharpen dialed, but Call ID could not be read after 5 seconds. Choose a disposition and save it.', 'warn');
+      setStatus('Sharpen dialed, but Call ID could not be read after 5 seconds. You can still use/copy the call template below.', 'warn');
     }
     dialSucceeded = true;
   } catch (error) {
     setStatus(error.message || 'Dial failed.', 'error');
   } finally {
     setActionButtonsDisabled(false);
-    if (dialSucceeded) dispositionSelect.focus();
+    if (dialSucceeded && copyCallTemplateButton) copyCallTemplateButton.focus();
   }
 });
 
