@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Telephone Energy Targeting Optimizer",
+  "version": "0.1.6",
+  "description": "Look up customer contact, contract, renewal, and billing details in the signed-in ESG portal.",
+  "permissions": ["activeTab", "tabs", "storage", "scripting", "downloads"],
+  "host_permissions": [
+    "https://affordable-ep.esgglobal.net/*",
+    "https://app.iz1.sharpen.cx/*"
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "ESG Customer Lookup",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://affordable-ep.esgglobal.net/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
