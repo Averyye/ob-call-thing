@@ -61,6 +61,9 @@ const DISPOSITION_OPTIONS = [
 
 function syncPopupHeightNow() {
   // force popup frame to track whichever panel is currently visible
+  popupBody.style.width = '';
+  document.documentElement.style.width = '';
+
   const nextWidth = popupBody.classList.contains('lookup-loading')
     ? COMPACT_POPUP_WIDTH_PX
     : popupBody.classList.contains('setup-open')
@@ -78,9 +81,6 @@ function syncPopupHeightNow() {
     document.body.scrollHeight,
     Math.ceil((shell?.getBoundingClientRect().height || 0) + 20)
   );
-
-  document.documentElement.style.width = `${nextWidth}px`;
-  document.body.style.width = `${nextWidth}px`;
   document.documentElement.style.height = `${nextHeight}px`;
   document.body.style.height = `${nextHeight}px`;
 }
